@@ -1,5 +1,16 @@
 *.class
 *.log
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+*.class
+**/.DS_Store
+.DS_Store
+.sbt
+.bsp
+.history
+.cache-main
+.scala_dependencies
+target/
+project/project/
+project/target/
 hs_err_pid*
+src/main/scala/Test.scala
+files/

@@ -26,14 +26,16 @@ val job = for {
 #### ZPath
 Methods common to `ZFile` and `ZDir`
 
-`val path: Path`  
-`def name: String`  
-`def startsWithDot: Boolean`  
-`def parent: ZDir`  
-`def moveTo(dest: ZPath): Task[Unit]`  
-`def exists: Task[Boolean]`  
-`def size: Task[Long]`  
-`def info: Task[ZPathInfo]`  
+```scala
+val path: Path
+def name: String
+def startsWithDot: Boolean
+def parent: ZDir
+def moveTo(dest: ZPath): Task[Unit]
+def exists: Task[Boolean]
+def size: Task[Long]
+def info: Task[ZPathInfo]
+``` 
 
 #### ZFile
 

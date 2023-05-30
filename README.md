@@ -1,6 +1,6 @@
 # zio-path
 
-zio-path is a simple library to work with files and folders in ZIO. It treats files and folders seperately, ZFile and ZDir.
+zio-path is a simple library for working with files and folders in ZIO. It treats files and folders seperately, ZFile and ZDir.
 
 Please create an issue if you find any bugs or, for example, if you want me to make it accessable as a package on Maven.
 
@@ -78,7 +78,6 @@ def get(dir: ZDir, path: String): ZDir
 ```
 
 ##### Methods:
-
 ```scala
 def add(other: ZFile): ZFile
 def add(other: ZDir): ZDir

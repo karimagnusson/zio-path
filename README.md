@@ -4,6 +4,17 @@ zio-path is a simple library for working with files and folders in ZIO. It treat
 
 Please create an issue if you find any bugs or, for example, if you want me to make it accessable as a package on Maven.
 
+#### Create instance
+
+```scala
+import io.github.karimagnusson.zio.path._
+
+// ZFile and ZDir are wrappers for Path and created in the same way.
+val textFile = ZFile(Paths.get("/path/to/files/file.txt"))
+val filesDir = ZDir.rel("files") // relative path
+val imgFile = ZFile.get(filesDir, "image.jpg")
+```
+
 #### Example
 
 ```scala
@@ -41,6 +52,7 @@ def info: Task[ZPathInfo]
 
 ##### Static:
 ```scala
+def fromPath(path: Path) = ZFile(Path)
 def rel(relPath: String): ZFile
 def get(path: String): ZFile 
 def get(dir: ZDir, path: String): ZFile
@@ -72,6 +84,7 @@ def streamLines: ZStream[Any, Throwable, String]
 
 ##### Static:
 ```scala
+def fromPath(path: Path) = ZDir(Path)
 def rel(relPath: String): ZDir
 def get(path: String): ZDir
 def get(dir: ZDir, path: String): ZDir

@@ -76,7 +76,8 @@ trait ZPath {
 
 
 object ZFile {
-  
+
+  def fromPath(path: Path) = ZFile(path)
   def rel(relPath: String) = ZFile(Paths.get(ZPath.root, relPath))
   def get(path: String) = ZFile(Paths.get(path))
   def get(dir: ZDir, path: String) = ZFile(Paths.get(dir.toString, path))
@@ -165,6 +166,7 @@ case class ZFile(path: Path) extends ZPath {
 
 
 object ZDir {
+  def fromPath(path: Path) = ZDir(path)
   def rel(relPath: String) = ZDir(Paths.get(ZPath.root, relPath))
   def get(path: String) = ZDir(Paths.get(path))
   def get(dir: ZDir, path: String) = ZDir(Paths.get(dir.toString, path))

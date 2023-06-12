@@ -26,10 +26,10 @@ val oldFolder = filesDir.dir("old-folder")
 
 val job = for {
   lines   <- textFile.readLines
-  _       <- filesDir.file("text-copy.txt").writeLines(lines)
+  _       <- filesDir.file("text-copy.txt").write(lines)
   imgDir  <- filesDir.mkdir("images")
   _       <- imgDir.file("pic.jpg").fillFrom(new URL("http://images.com/pic.jpg"))
-  _       <- oldFolder.deleteRecursively
+  _       <- oldFolder.delete
   files   <- filesDir.listFiles
 } yield files
 ```
@@ -39,12 +39,15 @@ Methods common to `ZFile` and `ZDir`
 
 ```scala
 val path: Path
+def isFile: Boolean
+def isDir: Boolean
 def name: String
 def startsWithDot: Boolean
 def parent: ZDir
-def moveTo(dest: ZPath): Task[Unit]
-def exists: Task[Boolean]
+def delete: Task[Unit]
+def copy(dest: ZDir): Task[Unit]
 def size: Task[Long]
+def exists: Task[Boolean]
 def info: Task[ZPathInfo]
 ``` 
 
@@ -62,17 +65,25 @@ def deleteFiles(files: Seq[ZFile]): Task[Unit]
 ##### Methods:
 ```scala
 def ext: String
+def extUpper: String
+def extLower: String
 def readBytes: Task[Array[Byte]]
 def readString: Task[String]
 def readLines: Task[List[String]]
-def writeBytes(bytes: Array[Byte]): Task[Unit]
-def writeString(str: String): Task[Unit]
-def writeLines(lines: Seq[String]): Task[Unit]
-def appendBytes(bytes: Array[Byte]): Task[Unit]
-def appendString(str: String): Task[Unit]
-def appendLines(lines: Seq[String]): Task[Unit]
+def write(bytes: Array[Byte]): Task[Unit]
+def write(str: String): Task[Unit]
+def write(lines: Seq[String]): Task[Unit]
+def append(bytes: Array[Byte]): Task[Unit]
+def append(str: String): Task[Unit]
+def append(lines: Seq[String]): Task[Unit]
+def size: Task[Long]
+def create: Task[ZFile]
+def delete: Task[Unit]
 def copy(target: ZFile): Task[Unit]
-def delete: Task[Unit]: Task[Unit]
+def copy(dest: ZDir): Task[Unit]
+def rename(target: ZFile): Task[ZFile]
+def rename(fileName: String): Task[ZFile]
+def moveTo(dest: ZDir): Task[ZFile]
 def fillFrom(url: URL): Task[Long]
 def asSink: ZSink[Any, Throwable, Byte, Byte, Long]
 def asStringSink: ZSink[Any, Throwable, String, Byte, Long]
@@ -88,24 +99,31 @@ def fromPath(path: Path) = ZDir(Path)
 def rel(relPath: String): ZDir
 def get(path: String): ZDir
 def get(dir: ZDir, path: String): ZDir
+def mkdirs(dirs: Seq[ZDir]): Task[Seq[ZDir]]
 ```
 
 ##### Methods:
 ```scala
+def add(other: ZPath): ZPath
 def add(other: ZFile): ZFile
 def add(other: ZDir): ZDir
-def ++(other: ZFile): ZFile
-def ++(other: ZDir): ZDir
 def file(fileName: String): ZFile
 def dir(dirName: String): ZDir
-def mkdir(dirName: String): Task[ZDir]
+def size: Task[Long]
 def create: Task[Unit]
-def createAll: Task[Unit]
+def delete: Task[Unit]
+def copy(other: ZDir): Task[Unit]
+def mkdir(dirName: String): Task[ZDir]
+def mkdirs(dirNames: Seq[String]): Task[Seq[ZDir]]
+def rename(dirName: String): Task[ZDir]
+def moveTo(dest: ZDir): Task[ZDir]
+def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]]
 def list: Task[List[ZPath]]
 def listFiles: Task[List[ZFile]]
 def listDirs: Task[List[ZDir]]
-def deleteDir: Task[Unit]
-def deleteRecursively: Task[Unit]
+def walk: Task[List[ZPath]]
+def walkFiles: Task[List[ZFile]]
+def walkDirs: Task[List[ZDir]]
 ```
 
 

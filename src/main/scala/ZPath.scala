@@ -8,9 +8,7 @@ import java.nio.file.{
   Files,
   Paths,
   Path,
-  StandardOpenOption,
-  StandardCopyOption,
-  LinkOption
+  StandardOpenOption
 }
 
 import scala.collection.JavaConverters._
@@ -21,7 +19,6 @@ import zio.stream.{ZStream, ZPipeline, ZSink}
 
 case class ZPathInfo(
   path: Path,
-  size: Long,
   isDir: Boolean,
   isHidden: Boolean,
   isReadable: Boolean,
@@ -36,32 +33,34 @@ object ZPath {
 }
 
 
-trait ZPath {
+sealed trait ZPath {
   
   val path: Path
+  def delete: Task[Unit]
+  def copy(dest: ZDir): Task[Unit]
+  def size: Task[Long]
 
   def name = path.getFileName.toString
-
   def startsWithDot = name.head == '.'
-
   def parent = ZDir(path.getParent)
 
-  def moveTo(dest: ZPath): Task[Unit] = ZIO.attemptBlocking {
-    Files.move(path, dest.path)
+  def isFile: Boolean = this match {
+    case _: ZFile => true
+    case _: ZDir  => false
+  }
+
+  def isDir: Boolean = this match {
+    case _: ZDir  => true
+    case _: ZFile => false
   }
 
   def exists: Task[Boolean] = ZIO.attemptBlocking {
     Files.exists(path)
   }
 
-  def size: Task[Long] = ZIO.attemptBlocking {
-    Files.size(path)
-  }
-
   def info: Task[ZPathInfo] = ZIO.attemptBlocking {
     ZPathInfo(
       path,
-      Files.size(path),
       Files.isDirectory(path),
       Files.isHidden(path),
       Files.isReadable(path),
@@ -90,7 +89,21 @@ object ZFile {
 
 case class ZFile(path: Path) extends ZPath {
 
-  def ext = name.split('.').lastOption.map(_.toLowerCase)
+  def ext = name.split('.').lastOption
+  def extUpper = ext.map(_.toUpperCase).getOrElse("")
+  def extLower = ext.map(_.toLowerCase).getOrElse("")
+
+  def create: Task[ZFile] = for {
+    _ <- ZIO.attemptBlocking(Files.createFile(path))
+  } yield this
+
+  def size: Task[Long] = ZIO.attemptBlocking {
+    Files.size(path)
+  }
+
+  def delete: Task[Unit] = ZIO.attemptBlocking {
+    Files.deleteIfExists(path)
+  }
 
   // read
 
@@ -108,27 +121,27 @@ case class ZFile(path: Path) extends ZPath {
 
   // write
 
-  def writeBytes(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
+  def write(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
     Files.write(path, bytes)
   }
 
-  def writeString(str: String) =
-    writeBytes(str.getBytes)
+  def write(str: String): Task[Unit] =
+    write(str.getBytes)
 
-  def writeLines(lines: Seq[String]) =
-    writeBytes(lines.mkString("\n").getBytes)
+  def write(lines: Seq[String]): Task[Unit] =
+    write(lines.mkString("\n").getBytes)
 
   // append
 
-  def appendBytes(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
+  def append(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
     Files.write(path, bytes, StandardOpenOption.APPEND)
   }
 
-  def appendString(str: String) =
-    appendBytes(str.getBytes)
+  def append(str: String): Task[Unit] =
+    append(str.getBytes)
 
-  def appendLines(lines: Seq[String]) =
-    appendBytes(("\n" + lines.mkString("\n")).getBytes)
+  def append(lines: Seq[String]): Task[Unit] =
+    append(("\n" + lines.mkString("\n")).getBytes)
 
   // copy
 
@@ -136,11 +149,17 @@ case class ZFile(path: Path) extends ZPath {
     Files.copy(path, target.path)
   }
 
-  // delete
+  def copy(dest: ZDir): Task[Unit] = copy(dest.file(name))
 
-  def delete: Task[Unit] = ZIO.attemptBlocking {
-    Files.deleteIfExists(path)
-  }
+  // rename
+
+  def rename(target: ZFile): Task[ZFile] = for {
+    _ <- ZIO.attemptBlocking(Files.move(path, target.path))
+  } yield target
+
+  def rename(fileName: String): Task[ZFile] = rename(parent.file(fileName))
+
+  def moveTo(dest: ZDir): Task[ZFile] = rename(dest.file(name))
 
   // stream
 
@@ -170,78 +189,131 @@ object ZDir {
   def rel(relPath: String) = ZDir(Paths.get(ZPath.root, relPath))
   def get(path: String) = ZDir(Paths.get(path))
   def get(dir: ZDir, path: String) = ZDir(Paths.get(dir.toString, path))
+
+  def mkdirs(dirs: Seq[ZDir]): Task[Seq[ZDir]] = ZIO.attemptBlocking {
+    dirs.map(_.path).filterNot(Files.exists(_)).foreach(Files.createDirectory(_))
+    dirs
+  } 
 }
 
 
 case class ZDir(path: Path) extends ZPath {
 
-  private def listDir(p: Path): List[Path] = {
-    Files
-      .list(p)
-      .iterator
-      .asScala
-      .toList
-  }
+  private def listDir(p: Path): List[Path] =
+    Files.list(p).iterator.asScala.toList
 
-  private def contents: List[Path] = listDir(path)
+  private def walkDir(p: Path): List[Path] =
+    Files.walk(p).iterator.asScala.toList
 
   private val toZPath: Path => ZPath = { p =>
     if (Files.isDirectory(p)) ZDir(p) else ZFile(p)
+  }
+
+  private val pickFiles: List[ZPath] => List[ZFile] = { paths =>
+    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
+  } 
+
+  private val pickDirs: List[ZPath] => List[ZDir] = { paths =>
+    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
+  } 
+
+  def size: Task[Long] = ZIO.attemptBlocking {
+    walkDir(path).foldLeft(0L) { (acc, p) => acc + Files.size(p) }
+  }
+
+  def add(other: ZPath): ZPath = other match {
+    case ZFile(otherPath) => ZFile(path.resolve(otherPath))
+    case ZDir(otherPath) => ZDir(path.resolve(otherPath))
   }
 
   def add(other: ZFile) = ZFile(path.resolve(other.path))
 
   def add(other: ZDir) = ZDir(path.resolve(other.path))
 
-  def ++(other: ZFile): ZFile = add(other)
-
-  def ++(other: ZDir): ZDir = add(other)
-
   def file(fileName: String) = add(ZFile.get(fileName))
 
   def dir(dirName: String) = add(ZDir.get(dirName))
 
-  def mkdir(dirName: String): Task[ZDir] = for {
-    newDir  <- ZIO.attempt(dir(dirName))
-    _       <- newDir.create
-  } yield newDir
+  def mkdir(dirName: String): Task[ZDir] = dir(dirName).create
 
-  def create: Task[Unit] = ZIO.attemptBlocking {
-    Files.createDirectory(path)
-  }
+  def mkdirs(dirNames: Seq[String]): Task[Seq[ZDir]] = ZDir.mkdirs(dirNames.map(dir))
 
-  def createAll: Task[Unit] = ZIO.attemptBlocking {
-    Files.createDirectories(path)
-  }
+  def create: Task[ZDir] = for {
+    _ <- ZIO.attemptBlocking(Files.createDirectories(path))
+  } yield this
+
+  // list
 
   def list: Task[List[ZPath]] = ZIO.attemptBlocking {
-    contents.map(toZPath)
+    listDir(path).map(toZPath)
   }
 
-  def listFiles: Task[List[ZFile]] = for {
-    list <- ZIO.attemptBlocking {
-      contents.filter(Files.isRegularFile(_))
-    }
-  } yield list.map(ZFile(_))
+  def listFiles: Task[List[ZFile]] = list.map(pickFiles)
 
-  def listDirs: Task[List[ZDir]] = for {
-    list <- ZIO.attemptBlocking {
-      contents.filter(Files.isDirectory(_))
-    }
-  } yield list.map(ZDir(_))
+  def listDirs: Task[List[ZDir]] = list.map(pickDirs)
 
-  def deleteDir: Task[Unit] = ZIO.attemptBlocking {
-    Files.deleteIfExists(path)
+  def walk: Task[List[ZPath]] = ZIO.attemptBlocking {
+    walkDir(path).map(toZPath)
   }
 
-  def deleteRecursively: Task[Unit] = ZIO.attemptBlocking {
-    def loop(p: Path) {
-      if (Files.isDirectory(p)) {
-        listDir(p).map(loop)
+  // walk
+
+  def walkFiles: Task[List[ZFile]] = walk.map(pickFiles)
+
+  def walkDirs: Task[List[ZDir]] = walk.map(pickDirs)
+
+  def rename(dest: ZDir): Task[ZDir] = for {
+    _ <- ZIO.attemptBlocking(Files.move(path, dest.path))
+  } yield dest
+
+  // rename
+
+  def rename(dirName: String): Task[ZDir] = rename(parent.dir(dirName))
+
+  def moveTo(dest: ZDir): Task[ZDir] = rename(dest.dir(name))
+
+  def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]] = for {
+    pairs <- ZIO.attempt {
+      paths.map {
+        case source: ZFile => (source, file(source.name))
+        case source: ZDir => (source, dir(source.name)) 
       }
-      Files.deleteIfExists(p)
     }
-    loop(path)
+    _     <- ZIO.attemptBlocking {
+      pairs.foreach {
+        case (source, dest) =>
+          Files.move(source.path, dest.path)
+      }
+    }
+  } yield pairs.map(_._2)
+
+  def delete: Task[Unit] = ZIO.attemptBlocking {
+    def loop(target: ZPath) {
+      target match {
+        case targetDir: ZDir =>
+          listDir(targetDir.path).map(toZPath).foreach(loop)
+          Files.deleteIfExists(targetDir.path)
+        case targetFile: ZFile =>
+          Files.deleteIfExists(targetFile.path)
+      }
+    }
+    loop(this)
+  }
+
+  def copy(other: ZDir): Task[Unit] = ZIO.attemptBlocking {
+    def loop(source: ZPath, dest: ZDir): Unit = {
+      source match {
+        case sourceDir: ZDir =>
+          val nextDest = dest.dir(sourceDir.name)
+          Files.createDirectory(nextDest.path)
+          listDir(sourceDir.path).map(toZPath).foreach { p =>
+            loop(sourceDir.add(p), nextDest)
+          }
+        case sourceFile: ZFile =>
+          Files.copy(sourceFile.path, dest.file(sourceFile.name).path)
+      }
+    }
+    loop(this, other) 
   }
 }
 

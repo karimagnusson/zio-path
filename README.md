@@ -35,8 +35,14 @@ val job = for {
 ```
 
 #### ZPath
-Methods common to `ZFile` and `ZDir`
 
+##### Static:
+```scala
+def fromPath(path: Path) = Task[ZPath]
+```
+
+Methods common to `ZFile` and `ZDir`
+##### Methods:
 ```scala
 val path: Path
 def isFile: Boolean
@@ -55,7 +61,7 @@ def info: Task[ZPathInfo]
 
 ##### Static:
 ```scala
-def fromPath(path: Path) = ZFile(Path)
+def fromPath(path: Path) = ZFile
 def rel(relPath: String): ZFile
 def get(path: String): ZFile 
 def get(dir: ZDir, path: String): ZFile
@@ -95,7 +101,7 @@ def streamLines: ZStream[Any, Throwable, String]
 
 ##### Static:
 ```scala
-def fromPath(path: Path) = ZDir(Path)
+def fromPath(path: Path) = ZDir
 def rel(relPath: String): ZDir
 def get(path: String): ZDir
 def get(dir: ZDir, path: String): ZDir

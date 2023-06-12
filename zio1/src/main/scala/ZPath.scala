@@ -14,7 +14,8 @@ import java.nio.file.{
 import scala.collection.JavaConverters._
 
 import zio._
-import zio.stream.{ZStream, ZPipeline, ZSink}
+import zio.blocking._
+import zio.stream.{ZStream, ZTransducer, ZSink}
 
 
 case class ZPathInfo(
@@ -30,15 +31,18 @@ case class ZPathInfo(
 
 object ZPath {
   lazy val root = Paths.get("").toAbsolutePath.toString
+  def fromPath(path: Path): RIO[Blocking, ZPath] = effectBlocking {
+    if (Files.isDirectory(path)) ZDir(path) else ZFile(path)
+  }
 }
 
 
 sealed trait ZPath {
   
   val path: Path
-  def delete: Task[Unit]
-  def copy(dest: ZDir): Task[Unit]
-  def size: Task[Long]
+  def delete: RIO[Blocking, Unit]
+  def copy(dest: ZDir): RIO[Blocking, Unit]
+  def size: RIO[Blocking, Long]
 
   def name = path.getFileName.toString
   def startsWithDot = name.head == '.'
@@ -54,11 +58,11 @@ sealed trait ZPath {
     case _: ZFile => false
   }
 
-  def exists: Task[Boolean] = ZIO.attemptBlocking {
+  def exists: RIO[Blocking, Boolean] = effectBlocking {
     Files.exists(path)
   }
 
-  def info: Task[ZPathInfo] = ZIO.attemptBlocking {
+  def info: RIO[Blocking, ZPathInfo] = effectBlocking {
     ZPathInfo(
       path,
       Files.isDirectory(path),
@@ -81,7 +85,7 @@ object ZFile {
   def get(path: String) = ZFile(Paths.get(path))
   def get(dir: ZDir, path: String) = ZFile(Paths.get(dir.toString, path))
   
-  def deleteFiles(files: Seq[ZFile]): Task[Unit] = ZIO.attemptBlocking {
+  def deleteFiles(files: Seq[ZFile]): RIO[Blocking, Unit] = effectBlocking {
     files.foreach(f => Files.deleteIfExists(f.path))
   }
 }
@@ -93,94 +97,93 @@ case class ZFile(path: Path) extends ZPath {
   def extUpper = ext.map(_.toUpperCase).getOrElse("")
   def extLower = ext.map(_.toLowerCase).getOrElse("")
 
-  def create: Task[ZFile] = for {
-    _ <- ZIO.attemptBlocking(Files.createFile(path))
+  def create: RIO[Blocking, ZFile] = for {
+    _ <- effectBlocking(Files.createFile(path))
   } yield this
 
-  def size: Task[Long] = ZIO.attemptBlocking {
+  def size: RIO[Blocking, Long] = effectBlocking {
     Files.size(path)
   }
 
-  def delete: Task[Unit] = ZIO.attemptBlocking {
+  def delete: RIO[Blocking, Unit] = effectBlocking {
     Files.deleteIfExists(path)
   }
 
   // read
 
-  def readBytes: Task[Array[Byte]] = ZIO.attemptBlocking {
+  def readBytes: RIO[Blocking, Array[Byte]] = effectBlocking {
     Files.readAllBytes(path)
   }
 
-  def readString: Task[String] = for {
+  def readString: RIO[Blocking, String] = for {
     bytes <- readBytes
   } yield bytes.map(_.toChar).mkString
 
-  def readLines: Task[List[String]] = for {
+  def readLines: RIO[Blocking, List[String]] = for {
     content <- readString
   } yield content.split("\n").toList
 
   // write
 
-  def write(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
+  def write(bytes: Array[Byte]): RIO[Blocking, Unit] = effectBlocking {
     Files.write(path, bytes)
   }
 
-  def write(str: String): Task[Unit] =
+  def write(str: String): RIO[Blocking, Unit] =
     write(str.getBytes)
 
-  def write(lines: Seq[String]): Task[Unit] =
+  def write(lines: Seq[String]): RIO[Blocking, Unit] =
     write(lines.mkString("\n").getBytes)
 
   // append
 
-  def append(bytes: Array[Byte]): Task[Unit] = ZIO.attemptBlocking {
+  def append(bytes: Array[Byte]): RIO[Blocking, Unit] = effectBlocking {
     Files.write(path, bytes, StandardOpenOption.APPEND)
   }
 
-  def append(str: String): Task[Unit] =
+  def append(str: String): RIO[Blocking, Unit] =
     append(str.getBytes)
 
-  def append(lines: Seq[String]): Task[Unit] =
+  def append(lines: Seq[String]): RIO[Blocking, Unit] =
     append(("\n" + lines.mkString("\n")).getBytes)
 
   // copy
 
-  def copy(target: ZFile): Task[Unit] = ZIO.attemptBlocking {
+  def copy(target: ZFile): RIO[Blocking, Unit] = effectBlocking {
     Files.copy(path, target.path)
   }
 
-  def copy(dest: ZDir): Task[Unit] = copy(dest.file(name))
+  def copy(dest: ZDir): RIO[Blocking, Unit] = copy(dest.file(name))
 
   // rename
 
-  def rename(target: ZFile): Task[ZFile] = for {
-    _ <- ZIO.attemptBlocking(Files.move(path, target.path))
+  def rename(target: ZFile): RIO[Blocking, ZFile] = for {
+    _ <- effectBlocking(Files.move(path, target.path))
   } yield target
 
-  def rename(fileName: String): Task[ZFile] = rename(parent.file(fileName))
+  def rename(fileName: String): RIO[Blocking, ZFile] = rename(parent.file(fileName))
 
-  def moveTo(dest: ZDir): Task[ZFile] = rename(dest.file(name))
+  def moveTo(dest: ZDir): RIO[Blocking, ZFile] = rename(dest.file(name))
 
   // stream
 
-  def fillFrom(url: URL): Task[Long] = 
-    ZStream.fromInputStreamZIO(
-      ZIO.attemptBlocking(url.openStream).refineToOrDie[IOException]
+  def fillFrom(url: URL): RIO[Blocking, Long] = 
+    ZStream.fromInputStreamEffect(
+      effectBlocking(url.openStream).refineToOrDie[IOException]
     ).run(asSink)
 
-  def asSink: ZSink[Any, Throwable, Byte, Byte, Long] =
-    ZSink.fromPath(path)
+  def asSink: ZSink[Blocking, Throwable, Byte, Byte, Long] =
+    ZSink.fromFile(path)
 
-  def asStringSink: ZSink[Any, Throwable, String, Byte, Long] =
+  def asStringSink: ZSink[Blocking, Throwable, String, Byte, Long] =
     asSink.contramapChunks[String](_.flatMap(_.getBytes))
 
-  def streamBytes: ZStream[Any, Throwable, Byte] = 
-    ZStream.fromPath(path)
+  def streamBytes: ZStream[Blocking, Throwable, Byte] = 
+    ZStream.fromFile(path)
 
-  def streamLines: ZStream[Any, Throwable, String] =
+  def streamLines: ZStream[Blocking, Throwable, String] =
     streamBytes
-      .via(ZPipeline.utf8Decode)
-      .via(ZPipeline.splitLines)
+      .transduce(ZTransducer.utf8Decode >>> ZTransducer.splitLines)
 }
 
 
@@ -190,7 +193,7 @@ object ZDir {
   def get(path: String) = ZDir(Paths.get(path))
   def get(dir: ZDir, path: String) = ZDir(Paths.get(dir.toString, path))
 
-  def mkdirs(dirs: Seq[ZDir]): Task[Seq[ZDir]] = ZIO.attemptBlocking {
+  def mkdirs(dirs: Seq[ZDir]): RIO[Blocking, Seq[ZDir]] = effectBlocking {
     dirs.map(_.path).filterNot(Files.exists(_)).foreach(Files.createDirectory(_))
     dirs
   } 
@@ -217,7 +220,7 @@ case class ZDir(path: Path) extends ZPath {
     paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
   } 
 
-  def size: Task[Long] = ZIO.attemptBlocking {
+  def size: RIO[Blocking, Long] = effectBlocking {
     walkDir(path).foldLeft(0L) { (acc, p) => acc + Files.size(p) }
   }
 
@@ -234,52 +237,52 @@ case class ZDir(path: Path) extends ZPath {
 
   def dir(dirName: String) = add(ZDir.get(dirName))
 
-  def mkdir(dirName: String): Task[ZDir] = dir(dirName).create
+  def mkdir(dirName: String): RIO[Blocking, ZDir] = dir(dirName).create
 
-  def mkdirs(dirNames: Seq[String]): Task[Seq[ZDir]] = ZDir.mkdirs(dirNames.map(dir))
+  def mkdirs(dirNames: Seq[String]): RIO[Blocking, Seq[ZDir]] = ZDir.mkdirs(dirNames.map(dir))
 
-  def create: Task[ZDir] = for {
-    _ <- ZIO.attemptBlocking(Files.createDirectories(path))
+  def create: RIO[Blocking, ZDir] = for {
+    _ <- effectBlocking(Files.createDirectories(path))
   } yield this
 
   // list
 
-  def list: Task[List[ZPath]] = ZIO.attemptBlocking {
+  def list: RIO[Blocking, List[ZPath]] = effectBlocking {
     listDir(path).map(toZPath)
   }
 
-  def listFiles: Task[List[ZFile]] = list.map(pickFiles)
+  def listFiles: RIO[Blocking, List[ZFile]] = list.map(pickFiles)
 
-  def listDirs: Task[List[ZDir]] = list.map(pickDirs)
+  def listDirs: RIO[Blocking, List[ZDir]] = list.map(pickDirs)
 
-  def walk: Task[List[ZPath]] = ZIO.attemptBlocking {
+  def walk: RIO[Blocking, List[ZPath]] = effectBlocking {
     walkDir(path).map(toZPath)
   }
 
   // walk
 
-  def walkFiles: Task[List[ZFile]] = walk.map(pickFiles)
+  def walkFiles: RIO[Blocking, List[ZFile]] = walk.map(pickFiles)
 
-  def walkDirs: Task[List[ZDir]] = walk.map(pickDirs)
+  def walkDirs: RIO[Blocking, List[ZDir]] = walk.map(pickDirs)
 
-  def rename(dest: ZDir): Task[ZDir] = for {
-    _ <- ZIO.attemptBlocking(Files.move(path, dest.path))
+  def rename(dest: ZDir): RIO[Blocking, ZDir] = for {
+    _ <- effectBlocking(Files.move(path, dest.path))
   } yield dest
 
   // rename
 
-  def rename(dirName: String): Task[ZDir] = rename(parent.dir(dirName))
+  def rename(dirName: String): RIO[Blocking, ZDir] = rename(parent.dir(dirName))
 
-  def moveTo(dest: ZDir): Task[ZDir] = rename(dest.dir(name))
+  def moveTo(dest: ZDir): RIO[Blocking, ZDir] = rename(dest.dir(name))
 
-  def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]] = for {
-    pairs <- ZIO.attempt {
+  def moveHere(paths: Seq[ZPath]): RIO[Blocking, Seq[ZPath]] = for {
+    pairs <- ZIO.effect {
       paths.map {
         case source: ZFile => (source, file(source.name))
         case source: ZDir => (source, dir(source.name)) 
       }
     }
-    _     <- ZIO.attemptBlocking {
+    _     <- effectBlocking {
       pairs.foreach {
         case (source, dest) =>
           Files.move(source.path, dest.path)
@@ -287,7 +290,7 @@ case class ZDir(path: Path) extends ZPath {
     }
   } yield pairs.map(_._2)
 
-  def delete: Task[Unit] = ZIO.attemptBlocking {
+  def delete: RIO[Blocking, Unit] = effectBlocking {
     def loop(target: ZPath) {
       target match {
         case targetDir: ZDir =>
@@ -300,7 +303,7 @@ case class ZDir(path: Path) extends ZPath {
     loop(this)
   }
 
-  def copy(other: ZDir): Task[Unit] = ZIO.attemptBlocking {
+  def copy(other: ZDir): RIO[Blocking, Unit] = effectBlocking {
     def loop(source: ZPath, dest: ZDir): Unit = {
       source match {
         case sourceDir: ZDir =>

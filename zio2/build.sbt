@@ -1,8 +1,8 @@
 name := "zio-path"
 
-organization := "com.kotturinn"
+organization := "io.kuzminki"
 
-version := "0.2"
+version := "2.0.1"
 
 scalaVersion := "2.13.8"
 

@@ -39,6 +39,8 @@ val job = for {
 ##### Static:
 ```scala
 def fromPath(path: Path) = Task[ZPath]
+def pickFiles(paths: List[ZPath]): List[ZFile]
+def pickDirs(paths: List[ZPath]): List[ZDir]
 ```
 
 Methods common to `ZFile` and `ZDir`
@@ -53,6 +55,8 @@ def parent: ZDir
 def delete: Task[Unit]
 def copy(dest: ZDir): Task[Unit]
 def size: Task[Long]
+def isEmpty: Task[Boolean]
+def nonEmpty: Task[Boolean]
 def exists: Task[Boolean]
 def info: Task[ZPathInfo]
 ``` 
@@ -83,6 +87,9 @@ def append(bytes: Array[Byte]): Task[Unit]
 def append(str: String): Task[Unit]
 def append(lines: Seq[String]): Task[Unit]
 def size: Task[Long]
+def isEmpty: Task[Boolean]
+def nonEmpty: Task[Boolean]
+def relTo(dir: ZDir): ZFile
 def create: Task[ZFile]
 def delete: Task[Unit]
 def copy(target: ZFile): Task[Unit]
@@ -116,6 +123,9 @@ def add(other: ZDir): ZDir
 def file(fileName: String): ZFile
 def dir(dirName: String): ZDir
 def size: Task[Long]
+def isEmpty: Task[Boolean]
+def nonEmpty: Task[Boolean]
+def relTo(dir: ZDir): ZFile
 def create: Task[Unit]
 def delete: Task[Unit]
 def copy(other: ZDir): Task[Unit]
@@ -130,6 +140,9 @@ def listDirs: Task[List[ZDir]]
 def walk: Task[List[ZPath]]
 def walkFiles: Task[List[ZFile]]
 def walkDirs: Task[List[ZDir]]
+def streamWalk: ZStream[Any, Throwable, ZPath]
+def streamWalkFiles: ZStream[Any, Throwable, ZFile]
+def streamWalkDirs: ZStream[Any, Throwable, ZDirs]
 ```
 
 

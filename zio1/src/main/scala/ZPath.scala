@@ -11,7 +11,7 @@ import java.nio.file.{
   StandardOpenOption
 }
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 import zio._
 import zio.blocking._
@@ -30,9 +30,19 @@ case class ZPathInfo(
 
 
 object ZPath {
+  
   lazy val root = Paths.get("").toAbsolutePath.toString
+  
   def fromPath(path: Path): RIO[Blocking, ZPath] = effectBlocking {
     if (Files.isDirectory(path)) ZDir(path) else ZFile(path)
+  }
+
+   def pickFiles(paths: List[ZPath]): List[ZFile] = {
+    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
+  } 
+
+  def pickDirs(paths: List[ZPath]): List[ZDir] = {
+    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
   }
 }
 
@@ -43,20 +53,15 @@ sealed trait ZPath {
   def delete: RIO[Blocking, Unit]
   def copy(dest: ZDir): RIO[Blocking, Unit]
   def size: RIO[Blocking, Long]
+  def isEmpty: RIO[Blocking, Boolean]
+  def nonEmpty: RIO[Blocking, Boolean]
+  def isFile: Boolean
+  def isDir: Boolean
 
   def name = path.getFileName.toString
+  def show = path.toString
   def startsWithDot = name.head == '.'
   def parent = ZDir(path.getParent)
-
-  def isFile: Boolean = this match {
-    case _: ZFile => true
-    case _: ZDir  => false
-  }
-
-  def isDir: Boolean = this match {
-    case _: ZDir  => true
-    case _: ZFile => false
-  }
 
   def exists: RIO[Blocking, Boolean] = effectBlocking {
     Files.exists(path)
@@ -97,6 +102,9 @@ case class ZFile(path: Path) extends ZPath {
   def extUpper = ext.map(_.toUpperCase).getOrElse("")
   def extLower = ext.map(_.toLowerCase).getOrElse("")
 
+  def isFile = true
+  def isDir = false
+
   def create: RIO[Blocking, ZFile] = for {
     _ <- effectBlocking(Files.createFile(path))
   } yield this
@@ -104,6 +112,9 @@ case class ZFile(path: Path) extends ZPath {
   def size: RIO[Blocking, Long] = effectBlocking {
     Files.size(path)
   }
+
+  def isEmpty: RIO[Blocking, Boolean] = size.map(_ == 0)
+  def nonEmpty: RIO[Blocking, Boolean] = size.map(_ > 0)
 
   def delete: RIO[Blocking, Unit] = effectBlocking {
     Files.deleteIfExists(path)
@@ -165,6 +176,8 @@ case class ZFile(path: Path) extends ZPath {
 
   def moveTo(dest: ZDir): RIO[Blocking, ZFile] = rename(dest.file(name))
 
+  def relTo(dir: ZDir) = ZFile(dir.path.relativize(path))
+
   // stream
 
   def fillFrom(url: URL): RIO[Blocking, Long] = 
@@ -212,21 +225,19 @@ case class ZDir(path: Path) extends ZPath {
     if (Files.isDirectory(p)) ZDir(p) else ZFile(p)
   }
 
-  private val pickFiles: List[ZPath] => List[ZFile] = { paths =>
-    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
-  } 
-
-  private val pickDirs: List[ZPath] => List[ZDir] = { paths =>
-    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
-  } 
+  def isFile = false
+  def isDir = true
 
   def size: RIO[Blocking, Long] = effectBlocking {
     walkDir(path).foldLeft(0L) { (acc, p) => acc + Files.size(p) }
   }
 
+  def isEmpty: RIO[Blocking, Boolean] = list.map(_.isEmpty)
+  def nonEmpty: RIO[Blocking, Boolean] = list.map(_.nonEmpty)
+
   def add(other: ZPath): ZPath = other match {
-    case ZFile(otherPath) => ZFile(path.resolve(otherPath))
-    case ZDir(otherPath) => ZDir(path.resolve(otherPath))
+    case p: ZFile => add(p)
+    case p: ZDir  => add(p)
   }
 
   def add(other: ZFile) = ZFile(path.resolve(other.path))
@@ -245,53 +256,25 @@ case class ZDir(path: Path) extends ZPath {
     _ <- effectBlocking(Files.createDirectories(path))
   } yield this
 
-  // list
+  def rename(dirName: String): RIO[Blocking, ZDir] = rename(parent.dir(dirName))
 
-  def list: RIO[Blocking, List[ZPath]] = effectBlocking {
-    listDir(path).map(toZPath)
+  def moveTo(dest: ZDir): RIO[Blocking, ZDir] = rename(dest.dir(name))
+
+  def moveHere(paths: Seq[ZPath]): RIO[Blocking, Seq[ZPath]] = effectBlocking {
+    paths.map {
+      case f: ZFile => ZFile(Files.move(f.path, path.resolve(f.name)))
+      case d: ZDir  => ZDir(Files.move(d.path, path.resolve(d.name)))
+    }
   }
-
-  def listFiles: RIO[Blocking, List[ZFile]] = list.map(pickFiles)
-
-  def listDirs: RIO[Blocking, List[ZDir]] = list.map(pickDirs)
-
-  def walk: RIO[Blocking, List[ZPath]] = effectBlocking {
-    walkDir(path).map(toZPath)
-  }
-
-  // walk
-
-  def walkFiles: RIO[Blocking, List[ZFile]] = walk.map(pickFiles)
-
-  def walkDirs: RIO[Blocking, List[ZDir]] = walk.map(pickDirs)
 
   def rename(dest: ZDir): RIO[Blocking, ZDir] = for {
     _ <- effectBlocking(Files.move(path, dest.path))
   } yield dest
 
-  // rename
-
-  def rename(dirName: String): RIO[Blocking, ZDir] = rename(parent.dir(dirName))
-
-  def moveTo(dest: ZDir): RIO[Blocking, ZDir] = rename(dest.dir(name))
-
-  def moveHere(paths: Seq[ZPath]): RIO[Blocking, Seq[ZPath]] = for {
-    pairs <- ZIO.effect {
-      paths.map {
-        case source: ZFile => (source, file(source.name))
-        case source: ZDir => (source, dir(source.name)) 
-      }
-    }
-    _     <- effectBlocking {
-      pairs.foreach {
-        case (source, dest) =>
-          Files.move(source.path, dest.path)
-      }
-    }
-  } yield pairs.map(_._2)
+  def relTo(other: ZDir) = ZDir(other.path.relativize(path))
 
   def delete: RIO[Blocking, Unit] = effectBlocking {
-    def loop(target: ZPath) {
+    def loop(target: ZPath): Unit = {
       target match {
         case targetDir: ZDir =>
           listDir(targetDir.path).map(toZPath).foreach(loop)
@@ -317,6 +300,59 @@ case class ZDir(path: Path) extends ZPath {
       }
     }
     loop(this, other) 
+  }
+
+  // list
+
+  def list: RIO[Blocking, List[ZPath]] = effectBlocking {
+    listDir(path).map(toZPath)
+  }
+
+  def listFiles: RIO[Blocking, List[ZFile]] = list.map(ZPath.pickFiles(_))
+
+  def listDirs: RIO[Blocking, List[ZDir]] = list.map(ZPath.pickDirs(_))
+
+  // walk
+
+  def walk: RIO[Blocking, List[ZPath]] = effectBlocking {
+    walkDir(path).map(toZPath)
+  }
+
+  def walkFiles: RIO[Blocking, List[ZFile]] = walk.map(ZPath.pickFiles(_))
+
+  def walkDirs: RIO[Blocking, List[ZDir]] = walk.map(ZPath.pickDirs(_))
+
+  def streamWalk: ZStream[Blocking, Throwable, ZPath] =
+    ZStream.unfoldChunkM(new WalkIter(path))(_.next)
+
+  def streamWalkFiles: ZStream[Blocking, Throwable, ZFile] =
+    streamWalk.filter(_.isFile).map(_.asInstanceOf[ZFile])
+
+  def streamWalkDirs: ZStream[Blocking, Throwable, ZDir] =
+    streamWalk.filter(_.isDir).map(_.asInstanceOf[ZDir])
+
+  private class WalkIter(path: Path) {
+
+    var iterator: Option[Iterator[Path]] = None
+
+    def iter = iterator match {
+      case Some(iter) => ZIO.succeed(iter)
+      case None => for {
+          iter  <- effectBlocking(Files.walk(path).iterator.asScala)
+          _     <- ZIO.succeed { iterator = Some(iter) }
+        } yield iter
+    }
+
+    def take(iter: Iterator[Path]) = effectBlocking {
+      iter.take(100).toList.map(toZPath)
+    }
+      
+    val toChunk: List[ZPath] => Option[(Chunk[ZPath], WalkIter)] = {
+      case Nil => None
+      case batch => Some((Chunk.fromIterable(batch), this))
+    }
+
+    def next = iter.flatMap(take).map(toChunk)
   }
 }
 

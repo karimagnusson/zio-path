@@ -11,7 +11,6 @@ import java.nio.file.{
   StandardOpenOption
 }
 
-//import scala.collection.JavaConverters._
 import scala.jdk.CollectionConverters._
 
 import zio._

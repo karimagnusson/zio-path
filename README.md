@@ -49,14 +49,14 @@ Methods common to `ZFile` and `ZDir`
 ##### Methods:
 ```scala
 val path: Path
-def name: String // name of the file or folder
+def name: String // Name of the file or folder
 def isFile: Boolean
 def isDir: Boolean
 def startsWithDot: Boolean
 def parent: ZDir
-def delete: IO[IOException, Unit] // a folder will be deleted recursively
-def copy(dest: ZDir): Task[Unit] // a folder will be copied with all its contents
-def size: IO[IOException, Long] // if folder, then the size of all the containing files and folders
+def delete: IO[IOException, Unit] // A folder will be deleted recursively
+def copy(dest: ZDir): Task[Unit] // A folder will be copied with all its contents
+def size: IO[IOException, Long] // If folder, then the size of all the containing files and folders
 def isEmpty: IO[IOException, Boolean]
 def nonEmpty: IO[IOException, Boolean]
 def exists: UIO[Boolean]
@@ -81,7 +81,7 @@ def ext: Option[String]
 def extUpper: String
 def extLower: String
 def relTo(dir: ZDir): ZFile // The rest of the path relative to dir
-def assert: IO[IOException, ZFile] // Assert that the file axists and hat it is a file
+def assert: IO[IOException, ZFile] // Assert that the file axists and that it is a file
 def create: Task[ZFile]
 def size: IO[IOException, Long]
 def isEmpty: IO[IOException, Boolean]
@@ -122,13 +122,13 @@ def mkdirs(dirs: Seq[ZDir]): IO[IOException, Seq[ZDir]]: Seq[ZDir]
 ```scala
 def isFile: Boolean
 def isDir: Boolean
-def relTo(other: ZDir): ZDir // The rest of the path relative to dir
+def relTo(other: ZDir): ZDir // The rest of the path relative to other
 def add(other: ZPath): ZPath
 def add(other: ZFile): ZFile
 def add(other: ZDir): ZDir
 def file(fileName: String): ZFile
 def dir(dirName: String): ZDir
-def assert: IO[IOException, ZDir] // Assert that the file axists and hat it is a folder
+def assert: IO[IOException, ZDir] // Assert that the folder exists and that it is a folder
 def size: IO[IOException, Long] // The combined size of all the containing files and folders
 def isEmpty: IO[IOException, Boolean]
 def nonEmpty: IO[IOException, Boolean]

@@ -38,7 +38,9 @@ val job = for {
 
 ##### Static:
 ```scala
-def fromPath(path: Path) = Task[ZPath]
+def fromPath(path: Path) = Task[ZPath] // ZFile or ZDir
+def rel(parts: String*) = Task[ZPath] // ZFile or ZDir
+def get(first: String, rest: String*) = Task[ZPath] // ZFile or ZDir
 def pickFiles(paths: List[ZPath]): List[ZFile]
 def pickDirs(paths: List[ZPath]): List[ZDir]
 ```
@@ -47,18 +49,18 @@ Methods common to `ZFile` and `ZDir`
 ##### Methods:
 ```scala
 val path: Path
+def name: String // name of the file or folder
 def isFile: Boolean
 def isDir: Boolean
-def name: String
 def startsWithDot: Boolean
 def parent: ZDir
-def delete: Task[Unit]
-def copy(dest: ZDir): Task[Unit]
-def size: Task[Long]
-def isEmpty: Task[Boolean]
-def nonEmpty: Task[Boolean]
-def exists: Task[Boolean]
-def info: Task[ZPathInfo]
+def delete: IO[IOException, Unit] // a folder will be deleted recursively
+def copy(dest: ZDir): Task[Unit] // a folder will be copied with all its contents
+def size: IO[IOException, Long] // if folder, then the size of all the containing files and folders
+def isEmpty: IO[IOException, Boolean]
+def nonEmpty: IO[IOException, Boolean]
+def exists: UIO[Boolean]
+def info: IO[IOException, ZPathInfo]
 ``` 
 
 #### ZFile
@@ -66,38 +68,40 @@ def info: Task[ZPathInfo]
 ##### Static:
 ```scala
 def fromPath(path: Path) = ZFile
-def rel(relPath: String): ZFile
-def get(path: String): ZFile 
-def get(dir: ZDir, path: String): ZFile
-def deleteFiles(files: Seq[ZFile]): Task[Unit]
+def rel(parts: String*): ZFile // Relative to working directory. Returns full path. 
+def get(first: String, rest: String*): ZFile 
+def deleteFiles(files: Seq[ZFile]): IO[IOException, Unit]
 ```
 
 ##### Methods:
 ```scala
-def ext: String
+def isFile: Boolean
+def isDir: Boolean
+def ext: Option[String]
 def extUpper: String
 def extLower: String
-def readBytes: Task[Array[Byte]]
-def readString: Task[String]
-def readLines: Task[List[String]]
+def relTo(dir: ZDir): ZFile // The rest of the path relative to dir
+def assert: IO[IOException, ZFile] // Assert that the file axists and hat it is a file
+def create: Task[ZFile]
+def size: IO[IOException, Long]
+def isEmpty: IO[IOException, Boolean]
+def nonEmpty: IO[IOException, Boolean]
+def delete: IO[IOException, Unit]
+def readBytes: IO[IOException, Array[Byte]]
+def readString: IO[IOException, String]
+def readLines: IO[IOException, List[String]]
 def write(bytes: Array[Byte]): Task[Unit]
 def write(str: String): Task[Unit]
 def write(lines: Seq[String]): Task[Unit]
 def append(bytes: Array[Byte]): Task[Unit]
 def append(str: String): Task[Unit]
 def append(lines: Seq[String]): Task[Unit]
-def size: Task[Long]
-def isEmpty: Task[Boolean]
-def nonEmpty: Task[Boolean]
-def relTo(dir: ZDir): ZFile
-def create: Task[ZFile]
-def delete: Task[Unit]
 def copy(target: ZFile): Task[Unit]
 def copy(dest: ZDir): Task[Unit]
 def rename(target: ZFile): Task[ZFile]
 def rename(fileName: String): Task[ZFile]
 def moveTo(dest: ZDir): Task[ZFile]
-def fillFrom(url: URL): Task[Long]
+def fillFrom(url: URL): Task[Long] // Download file contents from URL to this file
 def asSink: ZSink[Any, Throwable, Byte, Byte, Long]
 def asStringSink: ZSink[Any, Throwable, String, Byte, Long]
 def streamBytes: ZStream[Any, Throwable, Byte]
@@ -108,41 +112,44 @@ def streamLines: ZStream[Any, Throwable, String]
 
 ##### Static:
 ```scala
-def fromPath(path: Path) = ZDir
-def rel(relPath: String): ZDir
-def get(path: String): ZDir
-def get(dir: ZDir, path: String): ZDir
-def mkdirs(dirs: Seq[ZDir]): Task[Seq[ZDir]]
+def fromPath(path: Path): ZDir
+def rel(parts: String*): ZDir // Relative to working directory. Returns full path.
+def get(first: String, rest: String*): ZDir
+def mkdirs(dirs: Seq[ZDir]): IO[IOException, Seq[ZDir]]: Seq[ZDir]
 ```
 
 ##### Methods:
 ```scala
+def isFile: Boolean
+def isDir: Boolean
+def relTo(other: ZDir): ZDir // The rest of the path relative to dir
 def add(other: ZPath): ZPath
 def add(other: ZFile): ZFile
 def add(other: ZDir): ZDir
 def file(fileName: String): ZFile
 def dir(dirName: String): ZDir
-def size: Task[Long]
-def isEmpty: Task[Boolean]
-def nonEmpty: Task[Boolean]
-def relTo(dir: ZDir): ZFile
-def create: Task[Unit]
-def delete: Task[Unit]
-def copy(other: ZDir): Task[Unit]
+def assert: IO[IOException, ZDir] // Assert that the file axists and hat it is a folder
+def size: IO[IOException, Long] // The combined size of all the containing files and folders
+def isEmpty: IO[IOException, Boolean]
+def nonEmpty: IO[IOException, Boolean]
+def create: Task[ZDir]
 def mkdir(dirName: String): Task[ZDir]
-def mkdirs(dirNames: Seq[String]): Task[Seq[ZDir]]
+def mkdirs(dirNames: Seq[String]): IO[IOException, Seq[ZDir]]
+def rename(dest: ZDir): Task[ZDir]
 def rename(dirName: String): Task[ZDir]
 def moveTo(dest: ZDir): Task[ZDir]
 def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]]
-def list: Task[List[ZPath]]
-def listFiles: Task[List[ZFile]]
-def listDirs: Task[List[ZDir]]
-def walk: Task[List[ZPath]]
-def walkFiles: Task[List[ZFile]]
-def walkDirs: Task[List[ZDir]]
-def streamWalk: ZStream[Any, Throwable, ZPath]
+def delete: IO[IOException, Unit] // Delee the folder and all its contents
+def copy(other: ZDir): Task[Unit] // Copy the folder and all its contents
+def list: IO[IOException, List[ZPath]] // List all the files and folders
+def listFiles: IO[IOException, List[ZFile]]
+def listDirs: IO[IOException, List[ZDir]]
+def walk: IO[IOException, List[ZPath]]
+def walkFiles: IO[IOException, List[ZFile]]
+def walkDirs: IO[IOException, List[ZDir]]
 def streamWalkFiles: ZStream[Any, Throwable, ZFile]
-def streamWalkDirs: ZStream[Any, Throwable, ZDirs]
+def streamWalkDirs: ZStream[Any, Throwable, ZDir]
+def streamWalkDirs: ZStream[Any, Throwable, ZDir]
 ```
 
 

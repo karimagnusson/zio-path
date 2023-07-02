@@ -1,11 +1,17 @@
 # zio-path
 
-zio-path is a simple library for working with files and folders in ZIO. It treats files and folders seperately, ZFile and ZDir.
+zio-path is a simple library for working with files and folders in ZIO. It a wrapper for java.nio.files.Path. treats files and folders seperately, ZFile and ZDir.
 
-Please create an issue if you find any bugs or, for example, if you want me to make it accessable as a package on Maven.
+#### Sbt
+```sbt
+// compiled for Scala 2.13.8 and ZIO 1.0.18
+libraryDependencies += "io.github.karimagnusson" % "zio-path" % "1.0.0"
+
+// compiled for Scala 2.13.8 and ZIO 2.0.12
+libraryDependencies += "io.github.karimagnusson" % "zio-path" % "2.0.0"
+```
 
 #### Create instance
-
 ```scala
 import io.github.karimagnusson.zio.path._
 
@@ -16,7 +22,6 @@ val imgFile = ZFile.get(filesDir, "image.jpg")
 ```
 
 #### Example
-
 ```scala
 import io.github.karimagnusson.zio.path._
 

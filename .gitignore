@@ -16,7 +16,11 @@ zio1/src/main/scala/Test.scala
 zio1/files/
 zio1/project/project/
 zio1/project/target/
+zio1/publish.sbt
+zio1/project/plugins.sbt
 zio2/src/main/scala/Test.scala
 zio2/files/
 zio2/project/project/
 zio2/project/target/
+zio2/publish.sbt
+zio2/project/plugins.sbt

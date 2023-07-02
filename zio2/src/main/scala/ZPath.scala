@@ -52,11 +52,11 @@ sealed trait ZPath {
   
   val path: Path
   def name = path.getFileName.toString
+  def isFile: Boolean
+  def isDir: Boolean
   def show = path.toString
   def startsWithDot = name.head == '.'
   def parent = ZDir(path.getParent)
-  def isFile: Boolean
-  def isDir: Boolean
 
   def delete: IO[IOException, Unit]
   def copy(dest: ZDir): Task[Unit]

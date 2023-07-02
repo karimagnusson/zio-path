@@ -2,7 +2,7 @@ name := "zio-path"
 
 organization := "io.kuzminki"
 
-version := "1.0.1"
+version := "1.0.0"
 
 scalaVersion := "2.13.8"
 

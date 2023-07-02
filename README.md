@@ -147,8 +147,8 @@ def listDirs: IO[IOException, List[ZDir]]
 def walk: IO[IOException, List[ZPath]]
 def walkFiles: IO[IOException, List[ZFile]]
 def walkDirs: IO[IOException, List[ZDir]]
+def streamWalk: ZStream[Any, Throwable, ZPath]
 def streamWalkFiles: ZStream[Any, Throwable, ZFile]
-def streamWalkDirs: ZStream[Any, Throwable, ZDir]
 def streamWalkDirs: ZStream[Any, Throwable, ZDir]
 ```
 

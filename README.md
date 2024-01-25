@@ -4,11 +4,13 @@ zio-path is a simple library for working with files and folders in ZIO. It is a 
 
 #### Sbt
 ```sbt
-// compiled for Scala 2.13.8 and ZIO 1.0.18
-libraryDependencies += "io.github.karimagnusson" % "zio-path" % "1.0.0"
+// available for Scala 2.12, 2.13 and 3
 
-// compiled for Scala 2.13.8 and ZIO 2.0.12
-libraryDependencies += "io.github.karimagnusson" % "zio-path" % "2.0.0"
+// for ZIO 1
+libraryDependencies += "io.github.karimagnusson" % "zio-path" % "1.0.1"
+
+// for ZIO 2
+libraryDependencies += "io.github.karimagnusson" % "zio-path" % "2.0.1"
 ```
 
 #### Create instance
@@ -144,7 +146,7 @@ def rename(dest: ZDir): Task[ZDir]
 def rename(dirName: String): Task[ZDir]
 def moveTo(dest: ZDir): Task[ZDir]
 def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]]
-def delete: IO[IOException, Unit] // Delee the folder and all its contents
+def delete: IO[IOException, Unit] // Delete the folder and all its contents
 def copy(other: ZDir): Task[Unit] // Copy the folder and all its contents
 def list: IO[IOException, List[ZPath]] // List all the files and folders
 def listFiles: IO[IOException, List[ZFile]]

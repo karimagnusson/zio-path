@@ -88,7 +88,7 @@ def ext: Option[String]
 def extUpper: String
 def extLower: String
 def relTo(dir: ZDir): ZFile // The rest of the path relative to dir
-def assert: IO[IOException, ZFile] // Assert that the file axists and that it is a file
+def assert: IO[IOException, ZFile] // Assert that the file exists and that it is a file
 def create: Task[ZFile]
 def size: IO[IOException, Long]
 def isEmpty: IO[IOException, Boolean]

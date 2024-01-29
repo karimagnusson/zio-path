@@ -1,3 +1,5 @@
+[![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/bukotsunikki.svg?style=social&label=Follow%20%40kuzminki_lib)](https://twitter.com/kuzminki_lib)
+
 # zio-path
 
 zio-path is a simple library for working with files and folders in ZIO. It is a wrapper for java.nio.files.Path. Files and folders are handled separately with ZFile and ZDir which provide convenient methods for working with files and folders in ZIO. This library is available for ZIO 1 and ZIO 2.

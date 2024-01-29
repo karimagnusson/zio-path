@@ -4,6 +4,9 @@
 
 zio-path is a simple library for working with files and folders in ZIO. It is a wrapper for java.nio.files.Path. Files and folders are handled separately with ZFile and ZDir which provide convenient methods for working with files and folders in ZIO. This library is available for ZIO 1 and ZIO 2.
 
+You might also be interested in [zio-notes](https://github.com/karimagnusson/zio-notes).
+
+
 #### Sbt
 ```sbt
 // available for Scala 2.12, 2.13 and 3

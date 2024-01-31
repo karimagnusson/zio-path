@@ -12,10 +12,10 @@ You might also be interested in [zio-notes](https://github.com/karimagnusson/zio
 // available for Scala 2.12, 2.13 and 3
 
 // for ZIO 1
-libraryDependencies += "io.github.karimagnusson" % "zio-path" % "1.0.1"
+libraryDependencies += "io.github.karimagnusson" %% "zio-path" % "1.0.1"
 
 // for ZIO 2
-libraryDependencies += "io.github.karimagnusson" % "zio-path" % "2.0.1"
+libraryDependencies += "io.github.karimagnusson" %% "zio-path" % "2.0.1"
 ```
 
 #### Create instance

@@ -6,7 +6,7 @@ zio-path is a simple library for working with files and folders in ZIO. It is a 
 
 You might also be interested in [zio-notes](https://github.com/karimagnusson/zio-notes).
 
-The latest release candidate adds methods to compresss and uncompress gzip, zip and tar.
+The latest release candidate adds methods to compress and uncompress gzip, zip and tar.
 
 #### Sbt
 ```sbt

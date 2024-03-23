@@ -1,7 +1,6 @@
 package io.github.karimagnusson.zio.path
 
-import java.net.URL
-import java.util.Comparator
+import java.net.{URL, URI}
 import java.io.IOException
 import java.nio.file.attribute.FileTime
 import java.nio.file.{
@@ -12,10 +11,10 @@ import java.nio.file.{
 }
 
 import scala.jdk.CollectionConverters._
-
 import zio._
 import zio.blocking._
 import zio.stream.{ZStream, ZTransducer, ZSink}
+import io.github.karimagnusson.zio.path.utils.Archive
 
 
 case class ZPathInfo(
@@ -37,9 +36,14 @@ object ZPath {
     if (Files.isDirectory(path)) ZDir(path) else ZFile(path)
   }
 
-  def fromPath(path: Path) = toZPath(path)
-  def rel(parts: String*) = toZPath(Paths.get(root, parts: _*))
-  def get(first: String, rest: String*) = toZPath(Paths.get(first, rest: _*))
+  def fromPath(path: Path): RIO[Blocking, ZPath] =
+    toZPath(path)
+  
+  def rel(parts: String*): RIO[Blocking, ZPath] =
+    toZPath(Paths.get(root, parts: _*))
+  
+  def get(first: String, rest: String*): RIO[Blocking, ZPath] =
+    toZPath(Paths.get(first, rest: _*))
 
   def pickFiles(paths: List[ZPath]): List[ZFile] =
     paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
@@ -52,18 +56,19 @@ object ZPath {
 sealed trait ZPath {
   
   val path: Path
-  def delete: ZIO[Blocking, IOException, Unit]
-  def copy(dest: ZDir): RIO[Blocking, Unit]
-  def size: ZIO[Blocking, IOException, Long]
-  def isEmpty: ZIO[Blocking, IOException, Boolean]
-  def nonEmpty: ZIO[Blocking, IOException, Boolean]
+  def name = path.getFileName.toString
   def isFile: Boolean
   def isDir: Boolean
-
-  def name = path.getFileName.toString
   def show = path.toString
   def startsWithDot = name.head == '.'
   def parent = ZDir(path.getParent)
+
+  def delete: ZIO[Blocking, IOException, Unit]
+  def copy(dest: ZDir): RIO[Blocking, Unit]
+  def copyTo(dest: ZDir): RIO[Blocking, Unit]
+  def size: ZIO[Blocking, IOException, Long]
+  def isEmpty: ZIO[Blocking, IOException, Boolean]
+  def nonEmpty: ZIO[Blocking, IOException, Boolean]
 
   def exists: URIO[Blocking, Boolean] = effectBlocking {
     Files.exists(path)
@@ -172,11 +177,17 @@ case class ZFile(path: Path) extends ZPath {
 
   // copy
 
-  def copy(target: ZFile): RIO[Blocking, Unit] = effectBlocking {
+  @deprecated("use copyTo", "2.0.2")
+  def copy(target: ZFile): RIO[Blocking, Unit] = copyTo(target)
+
+  @deprecated("use copyTo", "2.0.2")
+  def copy(dest: ZDir): RIO[Blocking, Unit] = copyTo(dest.file(name))
+
+  def copyTo(target: ZFile): RIO[Blocking, Unit] = effectBlocking {
     Files.copy(path, target.path)
   }
 
-  def copy(dest: ZDir): RIO[Blocking, Unit] = copy(dest.file(name))
+  def copyTo(dest: ZDir): RIO[Blocking, Unit] = copyTo(dest.file(name))
 
   // rename
 
@@ -188,14 +199,61 @@ case class ZFile(path: Path) extends ZPath {
 
   def moveTo(dest: ZDir): RIO[Blocking, ZFile] = rename(dest.file(name))
 
-  
+  // mime
+
+  def mimeType: RIO[Blocking, String] = effectBlocking {
+    Files.probeContentType(path)
+  }
+
+  // gzip
+
+  def gzip: RIO[Blocking, ZFile] =
+    gzip(parent.file(name + ".gz"))
+
+  def gzip(out: ZFile): RIO[Blocking, ZFile] = effectBlocking {
+    Archive.gzip(path, out.path)
+  }.map(_ => out)
+
+  def ungzip: RIO[Blocking, ZFile] =
+    ungzip(parent.file(name.substring(0, name.size - 3)))
+
+  def ungzip(out: ZFile): RIO[Blocking, ZFile] = effectBlocking {
+    Archive.ungzip(path, out.path)
+  }.map(_ => out)
+
+  // zip
+
+  def unzip: RIO[Blocking, ZDir] = unzip(parent)
+
+  def unzip(dest: ZDir): RIO[Blocking, ZDir] = effectBlocking {
+    Archive.unzip(path, dest.path)
+  }.map(_ => dest)
+
+  // untar
+
+  def untar: RIO[Blocking, ZDir] = untar(parent)
+
+  def untar(dest: ZDir): RIO[Blocking, ZDir] = effectBlocking {
+    Archive.untar(path, dest.path, false)
+  }.map(_ => dest)
+
+  def untarGz: RIO[Blocking, ZDir] = untarGz(parent)
+
+  def untarGz(dest: ZDir): RIO[Blocking, ZDir] = effectBlocking {
+    Archive.untar(path, dest.path, true)
+  }.map(_ => dest)
 
   // stream
 
-  def fillFrom(url: URL): RIO[Blocking, Long] = 
+  @deprecated("use copyTo", "2.0.2")
+  def fillFrom(url: URL): RIO[Blocking, Long] = download(url.toString)
+
+  def download(urlStr: String): RIO[Blocking, Long] = {
+    val url = new URI(urlStr).toURL()
     ZStream.fromInputStreamEffect(
       effectBlocking(url.openStream).refineToOrDie[IOException]
     ).run(asSink)
+  }
 
   def asSink: ZSink[Blocking, Throwable, Byte, Byte, Long] =
     ZSink.fromFile(path)
@@ -316,7 +374,10 @@ case class ZDir(path: Path) extends ZPath {
       loop(this)
   }.refineToOrDie[IOException]
 
-  def copy(other: ZDir): RIO[Blocking, Unit] = effectBlocking {
+  @deprecated("use copyTo", "2.0.2")
+  def copy(other: ZDir): RIO[Blocking, Unit] = copyTo(other)
+
+  def copyTo(other: ZDir): RIO[Blocking, Unit] = effectBlocking {
     def loop(source: ZPath, dest: ZDir): Unit = {
       source match {
         case sourceDir: ZDir =>
@@ -331,6 +392,30 @@ case class ZDir(path: Path) extends ZPath {
     }
     loop(this, other) 
   }
+
+  // zip
+
+  def zip: RIO[Blocking, ZFile] = zip(parent.file(name + ".zip"))
+
+  def zip(out: ZFile): RIO[Blocking, ZFile] = effectBlocking {
+    Archive.zip(path, out.path)
+  }.map(_ => out)
+
+  // tar
+
+  def tar: RIO[Blocking, ZFile] = tar(parent)
+
+  def tar(dest: ZDir): RIO[Blocking, ZFile] = for {
+    tarFile <- ZIO.succeed(dest.file(name + ".tar"))
+    _ <- effectBlocking(Archive.tar(path, tarFile.path, false))
+  } yield tarFile
+
+  def tarGz: RIO[Blocking, ZFile] = tarGz(parent)
+
+  def tarGz(dest: ZDir): RIO[Blocking, ZFile] = for {
+    tarGzFile <- ZIO.succeed(dest.file(name + ".tar.gz"))
+    _ <- effectBlocking(Archive.tar(path, tarGzFile.path, true))
+  } yield tarGzFile
 
   // list
 

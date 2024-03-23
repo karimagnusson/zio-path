@@ -6,6 +6,7 @@ zio-path is a simple library for working with files and folders in ZIO. It is a 
 
 You might also be interested in [zio-notes](https://github.com/karimagnusson/zio-notes).
 
+The latest release candidate adds methods to compresss and uncompress gzip, zip and tar.
 
 #### Sbt
 ```sbt
@@ -67,7 +68,7 @@ def isDir: Boolean
 def startsWithDot: Boolean
 def parent: ZDir
 def delete: IO[IOException, Unit] // A folder will be deleted recursively
-def copy(dest: ZDir): Task[Unit] // A folder will be copied with all its contents
+def copyTo(dest: ZDir): Task[Unit] // A folder will be copied with all its contents
 def size: IO[IOException, Long] // If folder, then the size of all the containing files and folders
 def isEmpty: IO[IOException, Boolean]
 def nonEmpty: IO[IOException, Boolean]
@@ -108,12 +109,23 @@ def write(lines: Seq[String]): Task[Unit]
 def append(bytes: Array[Byte]): Task[Unit]
 def append(str: String): Task[Unit]
 def append(lines: Seq[String]): Task[Unit]
-def copy(target: ZFile): Task[Unit]
-def copy(dest: ZDir): Task[Unit]
+def copyTo(target: ZFile): Task[Unit]
+def copyTo(dest: ZDir): Task[Unit]
 def rename(target: ZFile): Task[ZFile]
 def rename(fileName: String): Task[ZFile]
 def moveTo(dest: ZDir): Task[ZFile]
-def fillFrom(url: URL): Task[Long] // Download file contents from URL to this file
+def mimeType: Task[String]
+def gzip: Task[ZFile]
+def gzip(out: ZFile): Task[ZFile]
+def ungzip: Task[ZFile]
+def ungzip(out: ZFile): Task[ZFile]
+def unzip: Task[ZDir]
+def unzip(dest: ZDir): Task[ZDir]
+def untar: Task[ZDir]
+def untar(dest: ZDir): Task[ZDir]
+def untarGz: Task[ZDir]
+def untarGz(dest: ZDir): Task[ZDir]
+def download(urlStr: String): Task[Long] // Download file contents from URL to this file
 def asSink: ZSink[Any, Throwable, Byte, Byte, Long]
 def asStringSink: ZSink[Any, Throwable, String, Byte, Long]
 def streamBytes: ZStream[Any, Throwable, Byte]
@@ -152,7 +164,13 @@ def rename(dirName: String): Task[ZDir]
 def moveTo(dest: ZDir): Task[ZDir]
 def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]]
 def delete: IO[IOException, Unit] // Delete the folder and all its contents
-def copy(other: ZDir): Task[Unit] // Copy the folder and all its contents
+def copyTo(other: ZDir): Task[Unit] // Copy the folder and all its contents
+def zip: Task[ZFile]
+def zip(out: ZFile): Task[ZFile]
+def tar: Task[ZFile]
+def tar(dest: ZDir): Task[ZFile]
+def tarGz: Task[ZFile]
+def tarGz(dest: ZDir): Task[ZFile]
 def list: IO[IOException, List[ZPath]] // List all the files and folders
 def listFiles: IO[IOException, List[ZFile]]
 def listDirs: IO[IOException, List[ZDir]]

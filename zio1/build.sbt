@@ -13,7 +13,7 @@ inThisBuild(List(
   )
 ))
 
-ThisBuild / version := "1.0.1"
+ThisBuild / version := "1.0.2-RC1"
 ThisBuild / versionScheme := Some("early-semver")
 
 scalaVersion := "3.3.1"
@@ -37,12 +37,24 @@ lazy val zioPath = (project in file("zio-path"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % "1.0.18",
       "dev.zio" %% "zio-streams" % "1.0.18",
+      "org.apache.commons" % "commons-compress" % "1.26.1",
       "org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0"
     ),
     scalacOptions ++= Seq(
+      "-encoding", "utf8",
+      "-feature",
+      "-language:higherKinds",
+      "-language:existentials",
+      "-language:implicitConversions",
       "-deprecation",
-      "-feature"
-    )
+      "-unchecked"
+    ),
+    scalacOptions ++= {
+      CrossVersion.partialVersion(scalaVersion.value) match {
+        case Some((3, _))  => Seq("-rewrite")
+        case _             => Seq("-Xlint")
+      }
+    }
   )
 
 

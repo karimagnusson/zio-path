@@ -1,7 +1,6 @@
 package io.github.karimagnusson.zio.path
 
-import java.net.URL
-import java.util.Comparator
+import java.net.{URL, URI}
 import java.io.IOException
 import java.nio.file.attribute.FileTime
 import java.nio.file.{
@@ -12,9 +11,9 @@ import java.nio.file.{
 }
 
 import scala.jdk.CollectionConverters._
-
 import zio._
 import zio.stream.{ZStream, ZPipeline, ZSink}
+import io.github.karimagnusson.zio.path.utils.Archive
 
 
 case class ZPathInfo(
@@ -36,9 +35,14 @@ object ZPath {
     if (Files.isDirectory(path)) ZDir(path) else ZFile(path)
   }
 
-  def fromPath(path: Path) = toZPath(path)
-  def rel(parts: String*) = toZPath(Paths.get(root, parts: _*))
-  def get(first: String, rest: String*) = toZPath(Paths.get(first, rest: _*))
+  def fromPath(path: Path): Task[ZPath] =
+    toZPath(path)
+  
+  def rel(parts: String*): Task[ZPath] =
+    toZPath(Paths.get(root, parts: _*))
+  
+  def get(first: String, rest: String*): Task[ZPath] =
+    toZPath(Paths.get(first, rest: _*))
 
   def pickFiles(paths: List[ZPath]): List[ZFile] =
     paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
@@ -60,6 +64,7 @@ sealed trait ZPath {
 
   def delete: IO[IOException, Unit]
   def copy(dest: ZDir): Task[Unit]
+  def copyTo(dest: ZDir): Task[Unit]
   def size: IO[IOException, Long]
   def isEmpty: IO[IOException, Boolean]
   def nonEmpty: IO[IOException, Boolean]
@@ -170,28 +175,83 @@ case class ZFile(path: Path) extends ZPath {
 
   // copy
 
-  def copy(target: ZFile): Task[Unit] = ZIO.attemptBlocking {
+  @deprecated("use copyTo", "2.0.2")
+  def copy(target: ZFile): Task[Unit] = copyTo(target)
+
+  @deprecated("use copyTo", "2.0.2")
+  def copy(dest: ZDir): Task[Unit] = copyTo(dest.file(name))
+
+  def copyTo(target: ZFile): Task[Unit] = ZIO.attemptBlocking {
     Files.copy(path, target.path)
   }
 
-  def copy(dest: ZDir): Task[Unit] = copy(dest.file(name))
+  def copyTo(dest: ZDir): Task[Unit] = copyTo(dest.file(name))
 
   // rename
 
-  def rename(target: ZFile): Task[ZFile] = for {
-    _ <- ZIO.attemptBlocking(Files.move(path, target.path))
-  } yield target
+  def rename(target: ZFile): Task[ZFile] = ZIO.attemptBlocking {
+    Files.move(path, target.path)
+  }.map(_ => target)
 
   def rename(fileName: String): Task[ZFile] = rename(parent.file(fileName))
 
   def moveTo(dest: ZDir): Task[ZFile] = rename(dest.file(name))
 
+  // mime
+
+  def mimeType: Task[String] = ZIO.attemptBlocking {
+    Files.probeContentType(path)
+  }
+
+  // gzip
+
+  def gzip: Task[ZFile] =
+    gzip(parent.file(name + ".gz"))
+
+  def gzip(out: ZFile): Task[ZFile] = ZIO.attemptBlocking {
+    Archive.gzip(path, out.path)
+  }.map(_ => out)
+
+  def ungzip: Task[ZFile] =
+    ungzip(parent.file(name.substring(0, name.size - 3)))
+
+  def ungzip(out: ZFile): Task[ZFile] = ZIO.attemptBlocking {
+    Archive.ungzip(path, out.path)
+  }.map(_ => out)
+
+  // zip
+
+  def unzip: Task[ZDir] = unzip(parent)
+
+  def unzip(dest: ZDir): Task[ZDir] = ZIO.attemptBlocking {
+    Archive.unzip(path, dest.path)
+  }.map(_ => dest)
+
+  // untar
+
+  def untar: Task[ZDir] = untar(parent)
+
+  def untar(dest: ZDir): Task[ZDir] = ZIO.attemptBlocking {
+    Archive.untar(path, dest.path, false)
+  }.map(_ => dest)
+
+  def untarGz: Task[ZDir] = untarGz(parent)
+
+  def untarGz(dest: ZDir): Task[ZDir] = ZIO.attemptBlocking {
+    Archive.untar(path, dest.path, true)
+  }.map(_ => dest)
+
   // stream
 
-  def fillFrom(url: URL): Task[Long] = 
+  @deprecated("use copyTo", "2.0.2")
+  def fillFrom(url: URL): Task[Long] = download(url.toString)
+
+  def download(urlStr: String): Task[Long] = {
+    val url = new URI(urlStr).toURL()
     ZStream.fromInputStreamZIO(
       ZIO.attemptBlocking(url.openStream).refineToOrDie[IOException]
     ).run(asSink)
+  }
 
   def asSink: ZSink[Any, Throwable, Byte, Byte, Long] =
     ZSink.fromPath(path)
@@ -312,7 +372,10 @@ case class ZDir(path: Path) extends ZPath {
       loop(this)
   }.refineToOrDie[IOException]
 
-  def copy(other: ZDir): Task[Unit] = ZIO.attemptBlocking {
+  @deprecated("use copyTo", "2.0.2")
+  def copy(other: ZDir): Task[Unit] = copyTo(other)
+
+  def copyTo(other: ZDir): Task[Unit] = ZIO.attemptBlocking {
     def loop(source: ZPath, dest: ZDir): Unit = {
       source match {
         case sourceDir: ZDir =>
@@ -327,6 +390,30 @@ case class ZDir(path: Path) extends ZPath {
     }
     loop(this, other)
   }
+
+  // zip
+
+  def zip: Task[ZFile] = zip(parent.file(name + ".zip"))
+
+  def zip(out: ZFile): Task[ZFile] = ZIO.attemptBlocking {
+    Archive.zip(path, out.path)
+  }.map(_ => out)
+
+  // tar
+
+  def tar: Task[ZFile] = tar(parent)
+
+  def tar(dest: ZDir): Task[ZFile] = for {
+    tarFile <- ZIO.attempt(dest.file(name + ".tar"))
+    _ <- ZIO.attemptBlocking(Archive.tar(path, tarFile.path, false))
+  } yield tarFile
+
+  def tarGz: Task[ZFile] = tarGz(parent)
+
+  def tarGz(dest: ZDir): Task[ZFile] = for {
+    tarGzFile <- ZIO.attempt(dest.file(name + ".tar.gz"))
+    _ <- ZIO.attemptBlocking(Archive.tar(path, tarGzFile.path, true))
+  } yield tarGzFile
 
   // list
 

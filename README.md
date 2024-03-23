@@ -6,7 +6,7 @@ zio-path is a simple library for working with files and folders in ZIO. It is a 
 
 You might also be interested in [zio-notes](https://github.com/karimagnusson/zio-notes).
 
-The latest release candidate adds methods to compress and uncompress gzip, zip and tar.
+The latest push adds methods to compress and uncompress gzip, zip and tar.
 
 #### Sbt
 ```sbt
@@ -41,7 +41,8 @@ val job = for {
   lines   <- textFile.readLines
   _       <- filesDir.file("text-copy.txt").write(lines)
   imgDir  <- filesDir.mkdir("images")
-  _       <- imgDir.file("pic.jpg").fillFrom(new URL("http://images.com/pic.jpg"))
+  gzFile  <- imgDir.file("doc.txt.gz").download("http://mysite.com/doc.txt.gz")
+  _       <- gzFile.ungzip
   _       <- oldFolder.delete
   files   <- filesDir.listFiles
 } yield files

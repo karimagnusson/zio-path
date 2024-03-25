@@ -210,16 +210,22 @@ case class ZFile(path: Path) extends ZPath {
   def gzip: RIO[Blocking, ZFile] =
     gzip(parent.file(name + ".gz"))
 
-  def gzip(out: ZFile): RIO[Blocking, ZFile] = effectBlocking {
-    Archive.gzip(path, out.path)
-  }.map(_ => out)
+  def gzip(out: ZFile): RIO[Blocking, ZFile] =
+    ZStream
+      .fromFile(path)
+      .transduce(ZTransducer.gzip())
+      .run(ZSink.fromFile(path))
+      .map(_ => out)
 
   def ungzip: RIO[Blocking, ZFile] =
     ungzip(parent.file(name.substring(0, name.size - 3)))
 
-  def ungzip(out: ZFile): RIO[Blocking, ZFile] = effectBlocking {
-    Archive.ungzip(path, out.path)
-  }.map(_ => out)
+  def ungzip(out: ZFile): RIO[Blocking, ZFile] = 
+    ZStream
+      .fromFile(path)
+      .transduce(ZTransducer.gunzip())
+      .run(ZSink.fromFile(path))
+      .map(_ => out)
 
   // zip
 

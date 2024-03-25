@@ -4,9 +4,7 @@
 
 zio-path is a simple library for working with files and folders in ZIO. It is a wrapper for java.nio.files.Path. Files and folders are handled separately with ZFile and ZDir which provide convenient methods for working with files and folders in ZIO. This library is available for ZIO 1 and ZIO 2.
 
-You might also be interested in [zio-notes](https://github.com/karimagnusson/zio-notes).
-
-The latest release candidate, x.0.2-RC2 adds methods to compress and uncompress gzip, zip and tar. Also methods for file upload and download. The documentation below is for 2.0.2-RC2.
+The latest release candidate, x.0.2-RC3 adds methods to compress and uncompress gzip, zip and tar. Also methods for file upload and download. The documentation below is for 2.0.2-RC3.
 
 #### Sbt
 ```sbt

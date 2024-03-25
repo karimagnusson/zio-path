@@ -208,16 +208,22 @@ case class ZFile(path: Path) extends ZPath {
   def gzip: Task[ZFile] =
     gzip(parent.file(name + ".gz"))
 
-  def gzip(out: ZFile): Task[ZFile] = ZIO.attemptBlocking {
-    Archive.gzip(path, out.path)
-  }.map(_ => out)
+  def gzip(out: ZFile): Task[ZFile] =
+    ZStream
+      .fromPath(path)
+      .via(ZPipeline.gzip())
+      .run(ZSink.fromPath(out.path))
+      .map(_ => out)
 
   def ungzip: Task[ZFile] =
     ungzip(parent.file(name.substring(0, name.size - 3)))
 
-  def ungzip(out: ZFile): Task[ZFile] = ZIO.attemptBlocking {
-    Archive.ungzip(path, out.path)
-  }.map(_ => out)
+  def ungzip(out: ZFile): Task[ZFile] = 
+    ZStream
+      .fromPath(path)
+      .via(ZPipeline.gunzip())
+      .run(ZSink.fromPath(out.path))
+      .map(_ => out)
 
   // zip
 

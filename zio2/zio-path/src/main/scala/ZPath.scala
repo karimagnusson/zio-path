@@ -13,7 +13,7 @@ import java.nio.file.{
 import scala.jdk.CollectionConverters._
 import zio._
 import zio.stream.{ZStream, ZPipeline, ZSink}
-import io.github.karimagnusson.zio.path.utils.Archive
+import io.github.karimagnusson.zio.path.utils._
 
 
 case class ZPathInfo(
@@ -244,14 +244,27 @@ case class ZFile(path: Path) extends ZPath {
   // stream
 
   @deprecated("use copyTo", "2.0.2")
-  def fillFrom(url: URL): Task[Long] = download(url.toString)
+  def fillFrom(url: URL): Task[Long] = download(url.toString).map(_ => 0L)
 
-  def download(urlStr: String): Task[Long] = {
-    val url = new URI(urlStr).toURL()
-    ZStream.fromInputStreamZIO(
-      ZIO.attemptBlocking(url.openStream).refineToOrDie[IOException]
-    ).run(asSink)
-  }
+  def download(url: String): Task[ZFile] = download(url, Map.empty[String, String])
+
+  def download(url: String, headers: Map[String, String]): Task[ZFile] = for {
+    javaUrl     <- ZIO.attempt(new URI(url).toURL())
+    javaHeaders <- ZIO.attempt(headers.map(kv => new Header(kv._1, kv._2)).toArray)
+    _           <- ZIO.attemptBlocking {
+      UrlRequest.download(javaUrl, path, javaHeaders)
+    }
+  } yield this
+
+  def upload(url: String): Task[String] = upload(url, Map.empty[String, String])
+
+  def upload(url: String, headers: Map[String, String]): Task[String] = for {
+    javaUrl     <- ZIO.attempt(new URI(url).toURL())
+    javaHeaders <- ZIO.attempt(headers.map(kv => new Header(kv._1, kv._2)).toArray)
+    rsp         <- ZIO.attemptBlocking {
+      UrlRequest.upload(javaUrl, path, javaHeaders)
+    }
+  } yield rsp
 
   def asSink: ZSink[Any, Throwable, Byte, Byte, Long] =
     ZSink.fromPath(path)

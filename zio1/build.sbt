@@ -13,7 +13,7 @@ inThisBuild(List(
   )
 ))
 
-ThisBuild / version := "1.0.2-RC1"
+ThisBuild / version := "1.0.2-RC2"
 ThisBuild / versionScheme := Some("early-semver")
 
 scalaVersion := "3.3.1"

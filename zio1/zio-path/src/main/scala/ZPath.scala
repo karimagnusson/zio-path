@@ -14,7 +14,7 @@ import scala.jdk.CollectionConverters._
 import zio._
 import zio.blocking._
 import zio.stream.{ZStream, ZTransducer, ZSink}
-import io.github.karimagnusson.zio.path.utils.Archive
+import io.github.karimagnusson.zio.path.utils._
 
 
 case class ZPathInfo(
@@ -246,14 +246,27 @@ case class ZFile(path: Path) extends ZPath {
   // stream
 
   @deprecated("use copyTo", "2.0.2")
-  def fillFrom(url: URL): RIO[Blocking, Long] = download(url.toString)
+  def fillFrom(url: URL): RIO[Blocking, ZFile] = download(url.toString)
 
-  def download(urlStr: String): RIO[Blocking, Long] = {
-    val url = new URI(urlStr).toURL()
-    ZStream.fromInputStreamEffect(
-      effectBlocking(url.openStream).refineToOrDie[IOException]
-    ).run(asSink)
-  }
+  def download(url: String): RIO[Blocking, ZFile] = download(url, Map.empty[String, String])
+
+  def download(url: String, headers: Map[String, String]): RIO[Blocking, ZFile] = for {
+    javaUrl     <- ZIO.effect(new URI(url).toURL())
+    javaHeaders <- ZIO.effect(headers.map(kv => new Header(kv._1, kv._2)).toArray)
+    _           <- effectBlocking {
+      UrlRequest.download(javaUrl, path, javaHeaders)
+    }
+  } yield this
+
+  def upload(url: String): RIO[Blocking, String] = upload(url, Map.empty[String, String])
+
+  def upload(url: String, headers: Map[String, String]): RIO[Blocking, String] = for {
+    javaUrl     <- ZIO.effect(new URI(url).toURL())
+    javaHeaders <- ZIO.effect(headers.map(kv => new Header(kv._1, kv._2)).toArray)
+    rsp         <- effectBlocking {
+      UrlRequest.upload(javaUrl, path, javaHeaders)
+    }
+  } yield rsp
 
   def asSink: ZSink[Blocking, Throwable, Byte, Byte, Long] =
     ZSink.fromFile(path)

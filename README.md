@@ -126,7 +126,10 @@ def untar: Task[ZDir]
 def untar(dest: ZDir): Task[ZDir]
 def untarGz: Task[ZDir]
 def untarGz(dest: ZDir): Task[ZDir]
-def download(urlStr: String): Task[Long] // Download file contents from URL to this file
+def download(url: String): Task[ZFile] // Download file contents from URL to this file
+def download(url: String, headers: Map[String, String]): Task[ZFile]
+def upload(url: String): Task[String]
+def upload(url: String, headers: Map[String, String]): Task[String]
 def asSink: ZSink[Any, Throwable, Byte, Byte, Long]
 def asStringSink: ZSink[Any, Throwable, String, Byte, Long]
 def streamBytes: ZStream[Any, Throwable, Byte]

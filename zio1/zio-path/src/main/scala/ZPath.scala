@@ -44,12 +44,6 @@ object ZPath {
   
   def get(first: String, rest: String*): RIO[Blocking, ZPath] =
     toZPath(Paths.get(first, rest: _*))
-
-  def pickFiles(paths: List[ZPath]): List[ZFile] =
-    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
-
-  def pickDirs(paths: List[ZPath]): List[ZDir] =
-    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
 }
 
 
@@ -92,13 +86,19 @@ sealed trait ZPath {
 
 object ZFile {
 
-  def fromPath(path: Path) = ZFile(path)
-  def rel(parts: String*) = ZFile(Paths.get(ZPath.root, parts: _*))
-  def get(first: String, rest: String*) = ZFile(Paths.get(first, rest: _*))
+  def fromPath(path: Path) =
+    ZFile(path)
+
+  def rel(parts: String*) =
+    ZFile(Paths.get(ZPath.root, parts: _*))
+
+  def get(first: String, rest: String*) =
+    ZFile(Paths.get(first, rest: _*))
   
-  def deleteFiles(files: Seq[ZFile]): ZIO[Blocking, IOException, Unit] = effectBlocking {
-    files.foreach(f => Files.deleteIfExists(f.path))
-  }.unit.refineToOrDie[IOException]
+  def deleteFiles(files: Seq[ZFile]): ZIO[Blocking, IOException, Unit] =
+    effectBlocking {
+      files.foreach(f => Files.deleteIfExists(f.path))
+    }.unit.refineToOrDie[IOException]
 }
 
 
@@ -113,20 +113,17 @@ case class ZFile(path: Path) extends ZPath {
 
   def relTo(dir: ZDir) = ZFile(dir.path.relativize(path))
 
-  private def assertFile: ZFile = {
-    if (!Files.exists(path))
-      throw new IOException(s"path does not exist: $path")
-    if (!Files.isRegularFile(path))
-      throw new IOException(s"path is not a file: $path")
-    this
-  } 
-
   def assert: ZIO[Blocking, IOException, ZFile] =
-    effectBlocking(assertFile).refineToOrDie[IOException]
+    effectBlocking {
+      if (!Files.exists(path))
+        throw new IOException(s"path does not exist: $path")
+      if (!Files.isRegularFile(path))
+        throw new IOException(s"path is not a file: $path")
+      this
+    }.refineToOrDie[IOException]
 
-  def create: RIO[Blocking, ZFile] = for {
-    _ <- effectBlocking(Files.createFile(path))
-  } yield this
+  def create: RIO[Blocking, ZFile] =
+    effectBlocking(Files.createFile(path)).map(_ => this)
 
   def size: ZIO[Blocking, IOException, Long] =
     effectBlocking(Files.size(path)).refineToOrDie[IOException]
@@ -191,18 +188,20 @@ case class ZFile(path: Path) extends ZPath {
 
   // rename
 
-  def rename(target: ZFile): RIO[Blocking, ZFile] = for {
-    _ <- effectBlocking(Files.move(path, target.path))
-  } yield target
+  def rename(target: ZFile): RIO[Blocking, ZFile] = effectBlocking {
+    Files.move(path, target.path)
+  }.map(_ => target)
 
-  def rename(fileName: String): RIO[Blocking, ZFile] = rename(parent.file(fileName))
+  def rename(fileName: String): RIO[Blocking, ZFile] =
+    rename(parent.file(fileName))
 
-  def moveTo(dest: ZDir): RIO[Blocking, ZFile] = rename(dest.file(name))
+  def moveTo(dest: ZDir): RIO[Blocking, ZFile] =
+    rename(dest.file(name))
 
   // mime
 
-  def mimeType: RIO[Blocking, String] = effectBlocking {
-    Files.probeContentType(path)
+  def mimeType: RIO[Blocking, Option[String]] = effectBlocking {
+    Option(Files.probeContentType(path))
   }
 
   // gzip
@@ -254,21 +253,25 @@ case class ZFile(path: Path) extends ZPath {
   @deprecated("use copyTo", "2.0.2")
   def fillFrom(url: URL): RIO[Blocking, ZFile] = download(url.toString)
 
-  def download(url: String): RIO[Blocking, ZFile] = download(url, Map.empty[String, String])
+  def download(url: String): RIO[Blocking, ZFile] =
+    download(url, Map.empty[String, String])
 
-  def download(url: String, headers: Map[String, String]): RIO[Blocking, ZFile] = for {
+   def download(url: String, headers: Map[String, String]): RIO[Blocking, ZFile] = for {
     javaUrl     <- ZIO.effect(new URI(url).toURL())
     javaHeaders <- ZIO.effect(headers.map(kv => new Header(kv._1, kv._2)).toArray)
     _           <- effectBlocking {
       UrlRequest.download(javaUrl, path, javaHeaders)
     }
   } yield this
-
+    
   def upload(url: String): RIO[Blocking, String] = upload(url, Map.empty[String, String])
 
   def upload(url: String, headers: Map[String, String]): RIO[Blocking, String] = for {
     javaUrl     <- ZIO.effect(new URI(url).toURL())
-    javaHeaders <- ZIO.effect(headers.map(kv => new Header(kv._1, kv._2)).toArray)
+    ct          <- mimeType.map(_.getOrElse("application/octet-stream"))
+    cs          <- size.map(_.toString)
+    ah          <- ZIO.succeed(headers ++ Map("Content-Type" -> ct, "Content-Size" -> cs))
+    javaHeaders <- ZIO.effect(ah.map(kv => new Header(kv._1, kv._2)).toArray)
     rsp         <- effectBlocking {
       UrlRequest.upload(javaUrl, path, javaHeaders)
     }
@@ -290,22 +293,32 @@ case class ZFile(path: Path) extends ZPath {
 
 
 object ZDir {
-  def fromPath(path: Path) = ZDir(path)
-  def rel(parts: String*) = ZDir(Paths.get(ZPath.root, parts: _*))
-  def get(first: String, rest: String*) = ZDir(Paths.get(first, rest: _*))
+  
+  def fromPath(path: Path) =
+    ZDir(path)
 
-  def mkdirs(dirs: Seq[ZDir]): ZIO[Blocking, IOException, Seq[ZDir]] = (for {
-    _ <- effectBlocking {
-      dirs
-        .map(_.path)
-        .filterNot(Files.exists(_))
-        .foreach(Files.createDirectory(_))
-    }
-  } yield dirs).refineToOrDie[IOException] 
+  def rel(parts: String*) =
+    ZDir(Paths.get(ZPath.root, parts: _*))
+
+  def get(first: String, rest: String*) =
+    ZDir(Paths.get(first, rest: _*))
+
+  def mkdirs(dirNames: Seq[String]): ZIO[Blocking, IOException, List[ZDir]] =
+    effectBlocking {
+      val zDirs = dirNames.map(d => get(d)).toList
+      zDirs.foreach(d => Files.createDirectories(d.path))
+      zDirs
+    }.refineToOrDie[IOException] 
 }
 
 
 case class ZDir(path: Path) extends ZPath {
+
+  private def pickFiles(paths: List[ZPath]): List[ZFile] =
+    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
+
+  private def pickDirs(paths: List[ZPath]): List[ZDir] =
+    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
 
   private def listDir(p: Path): List[Path] =
     Files.list(p).iterator.asScala.toList
@@ -322,29 +335,24 @@ case class ZDir(path: Path) extends ZPath {
 
   def relTo(other: ZDir) = ZDir(other.path.relativize(path))
 
+  def add(other: ZFile) = ZFile(path.resolve(other.path))
+  def add(other: ZDir) = ZDir(path.resolve(other.path))
   def add(other: ZPath): ZPath = other match {
     case p: ZFile => add(p)
     case p: ZDir  => add(p)
   }
 
-  def add(other: ZFile) = ZFile(path.resolve(other.path))
-
-  def add(other: ZDir) = ZDir(path.resolve(other.path))
-
   def file(fileName: String) = add(ZFile.get(fileName))
-
   def dir(dirName: String) = add(ZDir.get(dirName))
 
-  private def assertDir: ZDir = {
-    if (!Files.exists(path))
-      throw new IOException(s"path does not exist: $path")
-    if (!Files.isDirectory(path))
-      throw new IOException(s"path is not a file: $path")
-    this
-  } 
-
   def assert: ZIO[Blocking, IOException, ZDir] =
-    effectBlocking(assertDir).refineToOrDie[IOException]
+    effectBlocking {
+      if (!Files.exists(path))
+        throw new IOException(s"path does not exist: $path")
+      if (!Files.isDirectory(path))
+        throw new IOException(s"path is not a file: $path")
+      this
+    }.refineToOrDie[IOException]
 
 
   def size: ZIO[Blocking, IOException, Long] = effectBlocking {
@@ -354,44 +362,32 @@ case class ZDir(path: Path) extends ZPath {
   def isEmpty: ZIO[Blocking, IOException, Boolean] = list.map(_.isEmpty)
   def nonEmpty: ZIO[Blocking, IOException, Boolean] = list.map(_.nonEmpty)
 
-  def create: RIO[Blocking, ZDir] = for {
-    _ <- effectBlocking(Files.createDirectories(path))
-  } yield this
+  def create: RIO[Blocking, ZDir] =
+    effectBlocking(Files.createDirectories(path)).map(_ => this)
 
   def mkdir(dirName: String): RIO[Blocking, ZDir] =
     dir(dirName).create
 
-  def mkdirs(dirNames: Seq[String]): ZIO[Blocking, IOException, Seq[ZDir]] =
-    ZDir.mkdirs(dirNames.map(dir))
+  def mkdirs(dirNames: Seq[String]): ZIO[Blocking, IOException, Seq[ZDir]] = (for {
+    zDirs <- ZIO.effect(dirNames.map(dir).toList)
+    _ <- effectBlocking(zDirs.map(d => Files.createDirectories(d.path)))
+  } yield zDirs).refineToOrDie[IOException]
+   
+  def rename(dest: ZDir): RIO[Blocking, ZDir] =
+    effectBlocking(Files.move(path, dest.path)).map(_ => dest)
 
-  def rename(dest: ZDir): RIO[Blocking, ZDir] = for {
-    _ <- effectBlocking(Files.move(path, dest.path))
-  } yield dest
+  def rename(dirName: String): RIO[Blocking, ZDir] =
+    rename(parent.dir(dirName))
 
-  def rename(dirName: String): RIO[Blocking, ZDir] = rename(parent.dir(dirName))
-
-  def moveTo(dest: ZDir): RIO[Blocking, ZDir] = rename(dest.dir(name))
+  def moveTo(dest: ZDir): RIO[Blocking, ZDir] =
+    rename(dest.dir(name))
 
   def moveHere(paths: Seq[ZPath]): RIO[Blocking, Seq[ZPath]] = effectBlocking {
-    paths.map {
-      case f: ZFile => ZFile(Files.move(f.path, path.resolve(f.name)))
-      case d: ZDir  => ZDir(Files.move(d.path, path.resolve(d.name)))
-    }
-  }
-
-  def delete: ZIO[Blocking, IOException, Unit] = effectBlocking {
-    def loop(target: ZPath): Unit = {
-      target match {
-        case targetDir: ZDir =>
-          listDir(targetDir.path).map(toZPath).foreach(loop)
-          Files.deleteIfExists(targetDir.path)
-        case targetFile: ZFile =>
-          Files.deleteIfExists(targetFile.path)
-      }
-    }
-    if (Files.exists(path))
-      loop(this)
+    paths.foreach(p => Files.move(p.path, path.resolve(p.name)))
+    paths.toList
   }.refineToOrDie[IOException]
+
+  // copy
 
   @deprecated("use copyTo", "2.0.2")
   def copy(other: ZDir): RIO[Blocking, Unit] = copyTo(other)
@@ -411,6 +407,26 @@ case class ZDir(path: Path) extends ZPath {
     }
     loop(this, other) 
   }
+
+   // delete
+
+  private def deleteAny(p: Path): Unit = {
+    if (Files.isDirectory(p)) {
+      listDir(p).foreach(deleteAny)
+      Files.deleteIfExists(p)
+    } else {
+      Files.deleteIfExists(p)
+    }
+  }
+
+  def delete: ZIO[Blocking, IOException, Unit] = effectBlocking {
+    if (Files.exists(path))
+      deleteAny(path)
+  }.refineToOrDie[IOException]
+
+  def empty: ZIO[Blocking, IOException, ZDir] = effectBlocking {
+    listDir(path).foreach(deleteAny)
+  }.map(_ => this).refineToOrDie[IOException]
 
   // zip
 
@@ -443,10 +459,10 @@ case class ZDir(path: Path) extends ZPath {
   }.refineToOrDie[IOException]
 
   def listFiles: ZIO[Blocking, IOException, List[ZFile]] =
-    list.map(ZPath.pickFiles(_))
+    list.map(pickFiles(_))
 
   def listDirs: ZIO[Blocking, IOException, List[ZDir]] =
-    list.map(ZPath.pickDirs(_))
+    list.map(pickDirs(_))
 
   // walk
 
@@ -455,10 +471,10 @@ case class ZDir(path: Path) extends ZPath {
   }.refineToOrDie[IOException]
 
   def walkFiles: ZIO[Blocking, IOException, List[ZFile]] =
-    walk.map(ZPath.pickFiles(_))
+    walk.map(pickFiles(_))
 
   def walkDirs: ZIO[Blocking, IOException, List[ZDir]] =
-    walk.map(ZPath.pickDirs(_))
+    walk.map(pickDirs(_))
 
   def streamWalk: ZStream[Blocking, Throwable, ZPath] =
     ZStream.unfoldChunkM(new WalkIter(path))(_.next)

@@ -1,7 +1,8 @@
 package io.github.karimagnusson.zio.path
 
-import java.net.{URL, URI}
+import java.net.{URL, URI, HttpURLConnection}
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.attribute.FileTime
 import java.nio.file.{
   Files,
@@ -10,6 +11,7 @@ import java.nio.file.{
   StandardOpenOption
 }
 
+import scala.io.{Source, Codec}
 import scala.jdk.CollectionConverters._
 import zio._
 import zio.stream.{ZStream, ZPipeline, ZSink}
@@ -44,11 +46,60 @@ object ZPath {
   def get(first: String, rest: String*): Task[ZPath] =
     toZPath(Paths.get(first, rest: _*))
 
-  def pickFiles(paths: List[ZPath]): List[ZFile] =
-    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
+  // url stream
 
-  def pickDirs(paths: List[ZPath]): List[ZDir] =
-    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
+  private def readInput(is: InputStream): String =
+    Source.fromInputStream(is)(Codec.UTF8).mkString
+
+  def urlStream(url: String): ZStream[Any, IOException, Byte] =
+    urlStream(url, Map.empty)
+
+  def urlStream(
+    url: String,
+    headers: Map[String, String]
+  ): ZStream[Any, IOException, Byte] = ZStream.fromInputStreamZIO(
+    ZIO.attemptBlocking {
+      val javaUrl = new URI(url).toURL()
+      val conn = javaUrl.openConnection().asInstanceOf[HttpURLConnection]
+      conn.setRequestMethod("GET")
+      headers.foreach(h => conn.setRequestProperty(h._1, h._2))
+      if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+        throw new IOException(readInput(conn.getInputStream()))
+      }
+      conn.getInputStream()
+    }.refineToOrDie[IOException]
+  )
+
+  def urlSink(url: String): ZSink[Any, IOException, Byte, Byte, String] =
+    urlSink(url, Map.empty)
+
+  def urlSink(
+    url: String,
+    headers: Map[String, String]
+  ): ZSink[Any, IOException, Byte, Byte, String] = ZSink.unwrap {
+    ZIO.attemptBlocking {
+      val javaUrl = new URI(url).toURL()
+      val conn = javaUrl.openConnection().asInstanceOf[HttpURLConnection]
+      conn.setDoOutput(true)
+      conn.setRequestMethod("POST")
+      headers.foreach(h => conn.setRequestProperty(h._1, h._2))
+      ZSink
+        .fromOutputStream(conn.getOutputStream())
+        .mapZIO { _ => 
+          ZIO.attemptBlocking(
+            readInput(conn.getInputStream())
+          ).refineToOrDie[IOException]
+        }
+        .orElse {
+          ZSink.fail(new IOException(
+             readInput(conn.getInputStream())
+          ))
+        }
+    }.catchSome {
+      case ex: IOException =>
+        ZIO.succeed(ZSink.fail(ex))
+    }.refineToOrDie[IOException]
+  }
 }
 
 
@@ -90,13 +141,20 @@ sealed trait ZPath {
 
 
 object ZFile {
-  def fromPath(path: Path) = ZFile(path)
-  def rel(parts: String*) = ZFile(Paths.get(ZPath.root, parts: _*))
-  def get(first: String, rest: String*) = ZFile(Paths.get(first, rest: _*))
+
+  def fromPath(path: Path) =
+    ZFile(path)
+
+  def rel(parts: String*) =
+    ZFile(Paths.get(ZPath.root, parts: _*))
+
+  def get(first: String, rest: String*) =
+    ZFile(Paths.get(first, rest: _*))
   
-  def deleteFiles(files: Seq[ZFile]): IO[IOException, Unit] = ZIO.attemptBlocking {
-    files.foreach(f => Files.deleteIfExists(f.path))
-  }.unit.refineToOrDie[IOException]
+  def deleteFiles(files: Seq[ZFile]): IO[IOException, Unit] =
+    ZIO.attemptBlocking {
+      files.foreach(f => Files.deleteIfExists(f.path))
+    }.unit.refineToOrDie[IOException]
 }
 
 
@@ -111,20 +169,16 @@ case class ZFile(path: Path) extends ZPath {
 
   def relTo(dir: ZDir) = ZFile(dir.path.relativize(path))
 
-  private def assertFile: ZFile = {
+  def assert: IO[IOException, ZFile] = ZIO.attemptBlocking {
     if (!Files.exists(path))
       throw new IOException(s"path does not exist: $path")
     if (!Files.isRegularFile(path))
       throw new IOException(s"path is not a file: $path")
     this
-  } 
+  }.refineToOrDie[IOException]
 
-  def assert: IO[IOException, ZFile] =
-    ZIO.attemptBlocking(assertFile).refineToOrDie[IOException]
-
-  def create: Task[ZFile] = for {
-    _ <- ZIO.attemptBlocking(Files.createFile(path))
-  } yield this
+  def create: Task[ZFile] =
+    ZIO.attemptBlocking(Files.createFile(path)).map(_ => this)
 
   def size: IO[IOException, Long] =
     ZIO.attemptBlocking(Files.size(path)).refineToOrDie[IOException]
@@ -183,7 +237,7 @@ case class ZFile(path: Path) extends ZPath {
 
   def copyTo(target: ZFile): Task[Unit] = ZIO.attemptBlocking {
     Files.copy(path, target.path)
-  }
+  }.unit
 
   def copyTo(dest: ZDir): Task[Unit] = copyTo(dest.file(name))
 
@@ -193,15 +247,18 @@ case class ZFile(path: Path) extends ZPath {
     Files.move(path, target.path)
   }.map(_ => target)
 
-  def rename(fileName: String): Task[ZFile] = rename(parent.file(fileName))
+  def rename(fileName: String): Task[ZFile] =
+    rename(parent.file(fileName))
 
-  def moveTo(dest: ZDir): Task[ZFile] = rename(dest.file(name))
+  def moveTo(dest: ZDir): Task[ZFile] =
+    rename(dest.file(name))
 
   // mime
 
-  def mimeType: Task[String] = ZIO.attemptBlocking {
-    Files.probeContentType(path)
-  }
+  def mimeType: IO[IOException, Option[String]] =
+    ZIO.attemptBlocking(
+      Option(Files.probeContentType(path))
+    ).refineToOrDie[IOException]
 
   // gzip
 
@@ -252,25 +309,20 @@ case class ZFile(path: Path) extends ZPath {
   @deprecated("use copyTo", "2.0.2")
   def fillFrom(url: URL): Task[Long] = download(url.toString).map(_ => 0L)
 
-  def download(url: String): Task[ZFile] = download(url, Map.empty[String, String])
+  def download(url: String): IO[IOException, ZFile] =
+    download(url, Map.empty[String, String])
 
-  def download(url: String, headers: Map[String, String]): Task[ZFile] = for {
-    javaUrl     <- ZIO.attempt(new URI(url).toURL())
-    javaHeaders <- ZIO.attempt(headers.map(kv => new Header(kv._1, kv._2)).toArray)
-    _           <- ZIO.attemptBlocking {
-      UrlRequest.download(javaUrl, path, javaHeaders)
-    }
-  } yield this
+  def download(url: String, headers: Map[String, String]): IO[IOException, ZFile] =
+    ZPath.urlStream(url, headers).run(asSink).map(_ => this).refineToOrDie[IOException]
 
-  def upload(url: String): Task[String] = upload(url, Map.empty[String, String])
+  def upload(url: String): IO[IOException, String] = upload(url, Map.empty)
 
-  def upload(url: String, headers: Map[String, String]): Task[String] = for {
-    javaUrl     <- ZIO.attempt(new URI(url).toURL())
-    javaHeaders <- ZIO.attempt(headers.map(kv => new Header(kv._1, kv._2)).toArray)
-    rsp         <- ZIO.attemptBlocking {
-      UrlRequest.upload(javaUrl, path, javaHeaders)
-    }
-  } yield rsp
+  def upload(url: String, headers: Map[String, String]): IO[IOException, String] = for {
+    ct  <- mimeType.map(_.getOrElse("application/octet-stream"))
+    cs  <- size.map(_.toString)
+    ah  <- ZIO.succeed(headers ++ Map("Content-Type" -> ct, "Content-Size" -> cs))
+    res <- streamBytes.run(ZPath.urlSink(url, ah))
+  } yield res
 
   def asSink: ZSink[Any, Throwable, Byte, Byte, Long] =
     ZSink.fromPath(path)
@@ -278,10 +330,10 @@ case class ZFile(path: Path) extends ZPath {
   def asStringSink: ZSink[Any, Throwable, String, Byte, Long] =
     asSink.contramapChunks[String](_.flatMap(_.getBytes))
 
-  def streamBytes: ZStream[Any, Throwable, Byte] = 
-    ZStream.fromPath(path)
+  def streamBytes: ZStream[Any, IOException, Byte] = 
+    ZStream.fromPath(path).refineToOrDie[IOException]
 
-  def streamLines: ZStream[Any, Throwable, String] =
+  def streamLines: ZStream[Any, IOException, String] =
     streamBytes
       .via(ZPipeline.utf8Decode)
       .via(ZPipeline.splitLines)
@@ -289,22 +341,32 @@ case class ZFile(path: Path) extends ZPath {
 
 
 object ZDir {
-  def fromPath(path: Path) = ZDir(path)
-  def rel(parts: String*) = ZDir(Paths.get(ZPath.root, parts: _*))
-  def get(first: String, rest: String*) = ZDir(Paths.get(first, rest: _*))
+  
+  def fromPath(path: Path) =
+    ZDir(path)
 
-  def mkdirs(dirs: Seq[ZDir]): IO[IOException, Seq[ZDir]] = (for {
-    _ <- ZIO.attemptBlocking {
-      dirs
-        .map(_.path)
-        .filterNot(Files.exists(_))
-        .foreach(Files.createDirectories(_))
-    }
-  } yield dirs).refineToOrDie[IOException] 
+  def rel(parts: String*) =
+    ZDir(Paths.get(ZPath.root, parts: _*))
+
+  def get(first: String, rest: String*) =
+    ZDir(Paths.get(first, rest: _*))
+
+  def mkdirs(dirNames: Seq[String]): IO[IOException, List[ZDir]] =
+    ZIO.attemptBlocking {
+      val zDirs = dirNames.map(d => get(d)).toList
+      zDirs.foreach(d => Files.createDirectories(d.path))
+      zDirs
+    }.refineToOrDie[IOException] 
 }
 
 
 case class ZDir(path: Path) extends ZPath {
+
+  private def pickFiles(paths: List[ZPath]): List[ZFile] =
+    paths.filter(_.isFile).map(_.asInstanceOf[ZFile])
+
+  private def pickDirs(paths: List[ZPath]): List[ZDir] =
+    paths.filter(_.isDir).map(_.asInstanceOf[ZDir])
 
   private def listDir(p: Path): List[Path] =
     Files.list(p).iterator.asScala.toList
@@ -321,29 +383,24 @@ case class ZDir(path: Path) extends ZPath {
 
   def relTo(other: ZDir) = ZDir(other.path.relativize(path))
 
+  def add(other: ZFile) = ZFile(path.resolve(other.path))
+  def add(other: ZDir) = ZDir(path.resolve(other.path))
   def add(other: ZPath): ZPath = other match {
     case p: ZFile => add(p)
     case p: ZDir  => add(p)
   }
 
-  def add(other: ZFile) = ZFile(path.resolve(other.path))
-
-  def add(other: ZDir) = ZDir(path.resolve(other.path))
-
   def file(fileName: String) = add(ZFile.get(fileName))
-
   def dir(dirName: String) = add(ZDir.get(dirName))
 
-  private def assertDir: ZDir = {
-    if (!Files.exists(path))
-      throw new IOException(s"path does not exist: $path")
-    if (!Files.isDirectory(path))
-      throw new IOException(s"path is not a file: $path")
-    this
-  } 
-
   def assert: IO[IOException, ZDir] =
-    ZIO.attemptBlocking(assertDir).refineToOrDie[IOException]
+    ZIO.attemptBlocking {
+      if (!Files.exists(path))
+        throw new IOException(s"path does not exist: $path")
+      if (!Files.isDirectory(path))
+        throw new IOException(s"path is not a file: $path")
+      this
+    }.refineToOrDie[IOException]
 
   def size: IO[IOException, Long] = ZIO.attemptBlocking {
     walkDir(path).foldLeft(0L) { (acc, p) => acc + Files.size(p) }
@@ -352,44 +409,30 @@ case class ZDir(path: Path) extends ZPath {
   def isEmpty: IO[IOException, Boolean] = list.map(_.isEmpty)
   def nonEmpty: IO[IOException, Boolean] = list.map(_.nonEmpty)
 
-  def create: Task[ZDir] = for {
-    _ <- ZIO.attemptBlocking(Files.createDirectories(path))
-  } yield this
+  def create: Task[ZDir] = 
+    ZIO.attemptBlocking(Files.createDirectories(path)).map(_ => this)
 
   def mkdir(dirName: String): Task[ZDir] =
     dir(dirName).create
 
-  def mkdirs(dirNames: Seq[String]): IO[IOException, Seq[ZDir]] =
-    ZDir.mkdirs(dirNames.map(dir))
+  def mkdirs(dirNames: Seq[String]): IO[IOException, List[ZDir]] = (for {
+    zDirs <- ZIO.attempt(dirNames.map(dir).toList)
+    _ <- ZIO.attemptBlocking(zDirs.map(d => Files.createDirectories(d.path)))
+  } yield zDirs).refineToOrDie[IOException]
 
-  def rename(dest: ZDir): Task[ZDir] = for {
-    _ <- ZIO.attemptBlocking(Files.move(path, dest.path))
-  } yield dest
+  def rename(dest: ZDir): Task[ZDir] =
+    ZIO.attemptBlocking(Files.move(path, dest.path)).map(_ => dest)
 
   def rename(dirName: String): Task[ZDir] = rename(parent.dir(dirName))
 
   def moveTo(dest: ZDir): Task[ZDir] = rename(dest.dir(name))
 
   def moveHere(paths: Seq[ZPath]): Task[Seq[ZPath]] = ZIO.attemptBlocking {
-    paths.map {
-      case f: ZFile => ZFile(Files.move(f.path, path.resolve(f.name)))
-      case d: ZDir  => ZDir(Files.move(d.path, path.resolve(d.name)))
-    }
+    paths.foreach(p => Files.move(p.path, path.resolve(p.name)))
+    paths.toList
   }.refineToOrDie[IOException]
 
-  def delete: IO[IOException, Unit] = ZIO.attemptBlocking {
-    def loop(target: ZPath): Unit = {
-      target match {
-        case targetDir: ZDir =>
-          listDir(targetDir.path).map(toZPath).foreach(loop)
-          Files.deleteIfExists(targetDir.path)
-        case targetFile: ZFile =>
-          Files.deleteIfExists(targetFile.path)
-      }
-    }
-    if (Files.exists(path))
-      loop(this)
-  }.refineToOrDie[IOException]
+  // copy
 
   @deprecated("use copyTo", "2.0.2")
   def copy(other: ZDir): Task[Unit] = copyTo(other)
@@ -409,6 +452,26 @@ case class ZDir(path: Path) extends ZPath {
     }
     loop(this, other)
   }
+
+  // delete
+
+  private def deleteAny(p: Path): Unit = {
+    if (Files.isDirectory(p)) {
+      listDir(p).foreach(deleteAny)
+      Files.deleteIfExists(p)
+    } else {
+      Files.deleteIfExists(p)
+    }
+  }
+
+  def delete: IO[IOException, Unit] = ZIO.attemptBlocking {
+    if (Files.exists(path))
+      deleteAny(path)
+  }.refineToOrDie[IOException]
+
+  def empty: IO[IOException, ZDir] = ZIO.attemptBlocking {
+    listDir(path).foreach(deleteAny)
+  }.map(_ => this).refineToOrDie[IOException]
 
   // zip
 
@@ -441,10 +504,10 @@ case class ZDir(path: Path) extends ZPath {
   }.refineToOrDie[IOException]
 
   def listFiles: IO[IOException, List[ZFile]] =
-    list.map(ZPath.pickFiles(_))
+    list.map(pickFiles(_))
 
   def listDirs: IO[IOException, List[ZDir]] =
-    list.map(ZPath.pickDirs(_))
+    list.map(pickDirs(_))
 
   // walk
 
@@ -453,10 +516,10 @@ case class ZDir(path: Path) extends ZPath {
   }.refineToOrDie[IOException]
 
   def walkFiles: IO[IOException, List[ZFile]] =
-    walk.map(ZPath.pickFiles(_))
+    walk.map(pickFiles(_))
 
   def walkDirs: IO[IOException, List[ZDir]] =
-    walk.map(ZPath.pickDirs(_))
+    walk.map(pickDirs(_))
 
   def streamWalk: ZStream[Any, Throwable, ZPath] =
     ZStream.unfoldChunkZIO(new WalkIter(path))(_.next)
